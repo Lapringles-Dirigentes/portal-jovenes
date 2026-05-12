@@ -11,10 +11,8 @@
   import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
     from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
   import { getFirestore, doc, getDoc, setDoc, addDoc, collection,
-    query, orderBy, limit, onSnapshot, serverTimestamp, updateDoc, deleteDoc }
+    query, orderBy, limit, onSnapshot, serverTimestamp, updateDoc, deleteDoc, getDocs }
     from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
-  import { getStorage, ref, uploadBytes, getDownloadURL }
-    from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyAbNlr9T-q9QHosYX2UMziLQ2Qrl_yrQP8",
@@ -22,14 +20,8 @@
     projectId: "scout-pringles",
     storageBucket: "scout-pringles.firebasestorage.app",
     messagingSenderId: "655976644512",
-    appId: "1:655976644512:web:2666d2483351087b866ec5",
-    measurementId: "G-GEKS5046KG"
+    appId: "1:655976644512:web:2666d2483351087b866ec5"
   };
-
-  const ADMIN_EMAILS = [
-    "comunicacionespringles@gmail.com",
-    "grupo51@scouts.org.ar"
-  ];
 
   const RAMA_COLORES = {
     "Castores":   "#FF6B00",
@@ -39,943 +31,284 @@
     "Rovers":     "#B71C1C"
   };
 
-  const app     = initializeApp(firebaseConfig);
-  const auth    = getAuth(app);
-  const db      = getFirestore(app);
-  const storage = getStorage(app);
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
 
   let currentUser = null;
   let userProfile = null;
 
-  window.loginConGoogle = async () => {
-    try {
-      const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
-    } catch(e) { console.error(e); alert("Error al iniciar sesión. Intentá de nuevo."); }
-  };
-
-  window.logout = async () => { await signOut(auth); location.reload(); };
-
   onAuthStateChanged(auth, async (user) => {
     if (!user) { showPantalla("pantalla-login"); return; }
     currentUser = user;
-
-    const isAdmin  = ADMIN_EMAILS.includes(user.email);
-    const emailKey = user.email.replace(/\./g, "_");
-    const authSnap = await getDoc(doc(db, "autorizados", emailKey));
-
-    if (!isAdmin && !authSnap.exists()) {
-      showPantalla("pantalla-solicitud");
-      document.getElementById("sol-mail").textContent   = user.email;
-      document.getElementById("sol-input-nombre").value = user.displayName || "";
-      return;
-    }
-
-    const profileRef  = doc(db, "perfiles", user.uid);
-    const profileSnap = await getDoc(profileRef);
-    if (!profileSnap.exists()) {
+    const profileRef = doc(db, "perfiles", user.uid);
+    const snap = await getDoc(profileRef);
+    
+    if (!snap.exists()) {
       await setDoc(profileRef, {
-        nombre: user.displayName || "", email: user.email,
-        rama: "", fotoPerfil: user.photoURL || "",
-        edad: "", isAdmin, creadoEn: serverTimestamp()
+        nombre: user.displayName || "Usuario",
+        nombreReal: user.displayName || "",
+        email: user.email,
+        fotoPerfil: user.photoURL || "",
+        edad: "", rama: "", sector: ""
       });
     }
-    const snap2 = await getDoc(profileRef);
-    userProfile = { ...snap2.data(), uid: user.uid, isAdmin };
-
-    window._currentUser  = () => currentUser;
-    window._userProfile  = () => userProfile;
-    window._db           = db;
-    window._storage      = storage;
-    window._RAMA_COLORES = RAMA_COLORES;
-
+    userProfile = { ... (await getDoc(profileRef)).data(), uid: user.uid };
     renderApp();
   });
+
+  window.loginConGoogle = async () => {
+    const provider = new GoogleAuthProvider();
+    await signInWithPopup(auth, provider);
+  };
+
+  window.logout = () => signOut(auth).then(() => location.reload());
 
   function showPantalla(id) {
     document.querySelectorAll(".pantalla").forEach(p => p.style.display = "none");
     document.getElementById(id).style.display = "flex";
   }
 
-  // Colores de rama incluyendo sectores de dirigentes
-  const RAMA_COLORES_EXT = {
-    "Castores":   "#FF6B00",
-    "Manada":     "#FFD600",
-    "Scouts":     "#2E7D32",
-    "Caminantes": "#1565C0",
-    "Rovers":     "#B71C1C",
-    "Museo":      null, // degradado
-    "Jefatura":   null,
-    "Pañol":      null
-  };
-
-  function getBordeStyle(edad, rama, sector) {
-    const esDirigente = parseInt(edad) > 21;
-    if (esDirigente) return "border: 3px solid transparent; border-image: linear-gradient(135deg,#1a3a6b,#e6b800,#b01a1a) 1;";
-    if (rama && RAMA_COLORES[rama]) return `border: 3px solid ${RAMA_COLORES[rama]};`;
-    return "border: 3px solid #ccc;";
+  // Lógica de bordes (Dirigentes: Degradado 3 colores)
+  function getBordeCSS(edad, rama) {
+    if (parseInt(edad) > 21) {
+      return "border: 3px solid transparent; background-image: linear-gradient(white, white), linear-gradient(135deg, #1a3a6b, #e6b800, #b01a1a); background-origin: border-box; background-clip: padding-box, border-box;";
+    }
+    const color = RAMA_COLORES[rama] || "#ccc";
+    return `border: 3px solid ${color}; background-image: none;`;
   }
 
   function getSubnombre(edad, rama, sector) {
-    const esDirigente = parseInt(edad) > 21;
-    if (esDirigente) {
-      const extra = sector || rama || "";
-      return "Dirigente" + (extra ? " · " + extra : "");
-    }
+    if (parseInt(edad) > 21) return `Dirigente · ${sector || rama || 'General'}`;
     return rama || "Sin rama";
   }
 
   function renderApp() {
     showPantalla("pantalla-app");
-    const avatarSrc = userProfile.fotoPerfil ||
-      "https://ui-avatars.com/api/?name=" + encodeURIComponent(userProfile.nombre || "U") + "&background=1a3a6b&color=fff";
-    ["avatar-header","composer-avatar","perfil-foto-actual"].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.src = avatarSrc;
-    });
-
-    const nombreDisplay = userProfile.nombre || currentUser.displayName || currentUser.email;
-    document.getElementById("nombre-header").textContent = nombreDisplay;
-    const edad   = userProfile.edad   || "";
-    const rama   = userProfile.rama   || "";
-    const sector = userProfile.sector || "";
-    document.getElementById("subnombre-header").textContent = getSubnombre(edad, rama, sector);
-
-    // Borde degradado para dirigentes
+    document.getElementById("nombre-header").textContent = userProfile.nombre;
+    document.getElementById("subnombre-header").textContent = getSubnombre(userProfile.edad, userProfile.rama, userProfile.sector);
     const av = document.getElementById("avatar-header");
-    const bordeStyle = getBordeStyle(edad, rama, sector);
-    av.setAttribute("style", av.getAttribute("style") || "");
-    if (parseInt(edad) > 21) {
-      av.style.border = "3px solid transparent";
-      av.style.backgroundImage = "linear-gradient(white,white), linear-gradient(135deg,#1a3a6b,#e6b800,#b01a1a)";
-      av.style.backgroundOrigin = "border-box";
-      av.style.backgroundClip = "padding-box, border-box";
-    } else if (rama && RAMA_COLORES[rama]) {
-      av.style.border = `3px solid ${RAMA_COLORES[rama]}`;
-      av.style.backgroundImage = "";
-    } else {
-      av.style.border = "3px solid #ccc";
-      av.style.backgroundImage = "";
-    }
-
-    const navAdmin = document.getElementById("nav-admin");
-    if (navAdmin) navAdmin.style.display = userProfile.isAdmin ? "flex" : "none";
-
+    av.src = userProfile.fotoPerfil;
+    av.style = getBordeCSS(userProfile.edad, userProfile.rama);
     cargarMuro();
-    showTab("playon");
-    detectarAndroid();
-  }
-
-  window.enviarSolicitud = async () => {
-    const nombre = document.getElementById("sol-input-nombre").value.trim();
-    const edad   = document.getElementById("sol-input-edad").value.trim();
-    const rama   = document.getElementById("sol-input-rama").value;
-    if (!nombre || !edad || !rama) { alert("Completá todos los campos."); return; }
-    // Guardar en Firestore para que admins la vean en el panel
-    try {
-      await addDoc(collection(db, "solicitudes"), {
-        nombre, edad, rama,
-        email: currentUser.email,
-        uid:   currentUser.uid,
-        aprobado: false,
-        fecha: serverTimestamp()
-      });
-    } catch(e) { console.error(e); }
-    document.getElementById("sol-enviado").style.display = "block";
-  };
-
-  function linkify(text) {
-    const urlReg = /(https?:\/\/[^\s]+)/g;
-    return text.replace(urlReg, url => `<a href="${url}" target="_blank" rel="noopener" class="post-link">${url}</a>`);
-  }
-
-  function cargarMuro() {
-    const q = query(collection(db, "muro"), orderBy("fecha", "desc"), limit(30));
-    onSnapshot(q, snap => {
-      const lista = document.getElementById("muro-lista");
-      lista.innerHTML = "";
-      snap.forEach(d => {
-        const data       = d.data();
-        const docId      = d.id;
-        const esDirigente = data.ramaColor === "dirigente";
-        const color      = esDirigente ? "#1a3a6b" : (data.ramaColor || "#1a3a6b");
-        const esPropio   = currentUser && data.uid === currentUser.uid;
-        const esAdmin    = userProfile && userProfile.isAdmin;
-        const puedeModificar = esPropio || esAdmin;
-        const subnombre  = data.subnombre || data.rama || "";
-
-        // Estilo del borde del avatar
-        const borderStyleAttr = esDirigente
-          ? `border:3px solid transparent;background-image:linear-gradient(white,white),linear-gradient(135deg,#1a3a6b,#e6b800,#b01a1a);background-origin:border-box;background-clip:padding-box,border-box;`
-          : `border:2.5px solid ${color};`;
-
-        const div = document.createElement("div");
-        div.className = "post-card";
-        div.id = "post-" + docId;
-        div.innerHTML = `
-          <div class="post-avatar-wrap">
-            <img src="${data.foto || 'https://ui-avatars.com/api/?name='+encodeURIComponent(data.nombre)+'&background=1a3a6b&color=fff'}"
-              class="post-avatar" style="${borderStyleAttr}">
-          </div>
-          <div class="post-body">
-            <div class="post-header">
-              <div class="post-autor">
-                <strong class="post-nombre">${data.nombre}</strong>
-                ${data.nombreReal ? `<span class="post-nombre-real">(${data.nombreReal})</span>` : ""}
-                ${subnombre ? `<span class="post-rama" style="background:${color}20;color:${color}">${subnombre}</span>` : ""}
-              </div>
-              <span class="post-tiempo">${data.fecha ? formatTiempo(data.fecha.toDate()) : ""}</span>
-              ${puedeModificar ? `
-                <div class="post-menu-wrap">
-                  <button class="post-menu-btn" onclick="togglePostMenu('${docId}')">⋯</button>
-                  <div class="post-menu" id="menu-${docId}">
-                    ${esPropio ? `<button onclick="editarPost('${docId}', \`${data.texto.replace(/`/g,"'")}\`)">✏️ Editar</button>` : ""}
-                    <button onclick="eliminarPost('${docId}')" style="color:#b01a1a">🗑️ Eliminar</button>
-                  </div>
-                </div>` : ""}
-            </div>
-            <div class="post-texto-wrap" id="texto-${docId}">
-              <p class="post-texto">${linkify(data.texto)}</p>
-            </div>
-            ${data.imagenUrl ? `<img src="${data.imagenUrl}" class="post-imagen">` : ""}
-          </div>`;
-        lista.appendChild(div);
-      });
-    });
-  }
-
-  window.togglePostMenu = (id) => {
-    document.querySelectorAll(".post-menu").forEach(m => {
-      if (m.id !== "menu-" + id) m.classList.remove("open");
-    });
-    document.getElementById("menu-" + id).classList.toggle("open");
-  };
-
-  window.eliminarPost = async (id) => {
-    if (!confirm("¿Eliminar esta publicación?")) return;
-    await deleteDoc(doc(db, "muro", id));
-  };
-
-  window.editarPost = (id, textoActual) => {
-    // Cerrar menú
-    document.getElementById("menu-" + id).classList.remove("open");
-    const wrap = document.getElementById("texto-" + id);
-    wrap.innerHTML = `
-      <textarea class="edit-textarea" id="edit-${id}" maxlength="150">${textoActual}</textarea>
-      <div class="edit-footer">
-        <span class="edit-contador" id="edit-cnt-${id}">${textoActual.length}/150</span>
-        <button class="edit-cancel" onclick="cancelarEdicion('${id}', \`${textoActual.replace(/`/g,"'")}\`)">Cancelar</button>
-        <button class="edit-save" onclick="guardarEdicion('${id}')">Guardar</button>
-      </div>`;
-    document.getElementById("edit-" + id).oninput = () => {
-      document.getElementById("edit-cnt-" + id).textContent =
-        document.getElementById("edit-" + id).value.length + "/150";
-    };
-  };
-
-  window.cancelarEdicion = (id, textoOriginal) => {
-    document.getElementById("texto-" + id).innerHTML =
-      `<p class="post-texto">${textoOriginal}</p>`;
-  };
-
-  window.guardarEdicion = async (id) => {
-    const nuevoTexto = document.getElementById("edit-" + id).value.trim();
-    if (!nuevoTexto) { alert("El texto no puede estar vacío."); return; }
-    if (nuevoTexto.length > 150) { alert("Máximo 150 caracteres."); return; }
-    await updateDoc(doc(db, "muro", id), { texto: nuevoTexto, editado: true });
-  };
-
-  function formatTiempo(date) {
-    const diff = Math.floor((Date.now() - date) / 60000);
-    if (diff < 1) return "ahora";
-    if (diff < 60) return `hace ${diff}m`;
-    if (diff < 1440) return `hace ${Math.floor(diff/60)}h`;
-    return date.toLocaleDateString("es-AR");
   }
 
   window.publicarPost = async () => {
     const texto = document.getElementById("muro-input").value.trim();
-    if (!texto) { alert("Escribí algo antes de publicar."); return; }
-    if (texto.length > 150) { alert("Máximo 150 caracteres."); return; }
-    const esDirigente = parseInt(userProfile.edad) > 21;
-    const ramaColor   = esDirigente ? "dirigente" : (RAMA_COLORES[userProfile.rama] || "#1a3a6b");
-    const subnombre   = getSubnombre(userProfile.edad, userProfile.rama, userProfile.sector);
+    if (!texto) return;
     await addDoc(collection(db, "muro"), {
       texto,
-      nombre:     userProfile.nombre || currentUser.displayName || currentUser.email,
-      nombreReal: currentUser.displayName || "",
-      foto:       userProfile.fotoPerfil || "",
-      rama:       userProfile.rama || "",
-      sector:     userProfile.sector || "",
-      subnombre,
-      ramaColor,
-      uid:        currentUser.uid,
-      fecha:      serverTimestamp()
+      nombre: userProfile.nombre,
+      nombreReal: currentUser.displayName,
+      foto: userProfile.fotoPerfil,
+      uid: currentUser.uid,
+      edad: userProfile.edad,
+      rama: userProfile.rama,
+      sector: userProfile.sector,
+      fecha: serverTimestamp()
     });
     document.getElementById("muro-input").value = "";
-    document.getElementById("muro-contador").textContent = "0/150";
-    document.getElementById("emoji-picker").classList.remove("open");
   };
 
-  window.contarChars = () => {
-    const val = document.getElementById("muro-input").value;
-    const cnt = document.getElementById("muro-contador");
-    cnt.textContent = val.length + "/150";
-    cnt.style.color = val.length > 150 ? "red" : "";
-  };
+  function linkify(text) {
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    return text.replace(urlRegex, (url) => `<a href="${url}" target="_blank" class="post-link">${url}</a>`);
+  }
 
-  // ---- PANEL ADMIN ----
-  window.cargarSolicitudesAdmin = () => {
-    const q = query(collection(db, "solicitudes"), orderBy("fecha", "desc"), limit(50));
+  function cargarMuro() {
+    const q = query(collection(db, "muro"), orderBy("fecha", "desc"), limit(50));
     onSnapshot(q, snap => {
-      const lista = document.getElementById("admin-solicitudes-lista");
-      if (!lista) return;
+      const lista = document.getElementById("muro-lista");
       lista.innerHTML = "";
-      if (snap.empty) {
-        lista.innerHTML = `<div class="admin-empty">✅ No hay solicitudes pendientes.</div>`;
-        return;
-      }
       snap.forEach(d => {
         const data = d.data();
-        const docId = d.id;
-        const aprobado = data.aprobado || false;
+        const borderStyle = getBordeCSS(data.edad, data.rama);
+        const sub = getSubnombre(data.edad, data.rama, data.sector);
+        
         const div = document.createElement("div");
-        div.className = "solicitud-admin-card" + (aprobado ? " aprobada" : "");
+        div.className = "post-card";
         div.innerHTML = `
-          <div class="sol-admin-info">
-            <strong>${data.nombre}</strong>
-            <span class="sol-admin-mail">${data.email}</span>
-            <div class="sol-admin-meta">
-              <span>🎂 ${data.edad} años</span>
-              <span>⚜️ ${data.rama}</span>
-              <span class="sol-fecha">${data.fecha ? data.fecha.toDate().toLocaleDateString("es-AR") : ""}</span>
+          <img src="${data.foto}" class="post-avatar" style="${borderStyle}">
+          <div class="post-body">
+            <div class="post-header">
+              <strong>${data.nombre}</strong> 
+              <span style="color:gray; font-size:10px; margin-left:4px;">(${data.nombreReal})</span>
+              <span class="post-rama-tag">${sub}</span>
             </div>
-          </div>
-          <div class="sol-admin-acciones">
-            ${aprobado
-              ? `<span class="badge-aprobado">✅ Aprobado</span>
-                 <button class="btn-revocar" onclick="revocarAcceso('${docId}','${data.email}')">Revocar</button>`
-              : `<button class="btn-aprobar" onclick="aprobarAcceso('${docId}','${data.email}','${data.nombre}')">✅ Aprobar</button>
-                 <button class="btn-rechazar" onclick="rechazarSolicitud('${docId}')">❌ Rechazar</button>`
-            }
+            <p class="post-texto">${linkify(data.texto)}</p>
           </div>`;
         lista.appendChild(div);
       });
     });
-  };
+  }
 
-  window.aprobarAcceso = async (docId, email, nombre) => {
-    if (!confirm(`¿Aprobar acceso a ${nombre} (${email})?`)) return;
-    const emailKey = email.replace(/\./g, "_");
-    await setDoc(doc(db, "autorizados", emailKey), { email, nombre, aprobadoEn: serverTimestamp() });
-    await updateDoc(doc(db, "solicitudes", docId), { aprobado: true, aprobadoEn: serverTimestamp() });
-    alert(`✅ Acceso aprobado para ${nombre}.`);
-  };
+  // --- PERFIL ---
+  window.actualizarCamposPerfil = () => {
+    const edad = parseInt(document.getElementById("perfil-edad").value);
+    const selRama = document.getElementById("perfil-rama");
+    const divSector = document.getElementById("grupo-sector");
+    
+    // Reset botón al detectar cambios
+    const btn = document.getElementById("btn-guardar-perfil");
+    btn.style.background = "var(--azul)";
+    btn.style.cursor = "pointer";
+    btn.textContent = "Guardar cambios";
 
-  window.revocarAcceso = async (docId, email) => {
-    if (!confirm(`¿Revocar acceso de ${email}?`)) return;
-    const emailKey = email.replace(/\./g, "_");
-    await deleteDoc(doc(db, "autorizados", emailKey));
-    await updateDoc(doc(db, "solicitudes", docId), { aprobado: false });
-    alert("Acceso revocado.");
-  };
-
-  window.rechazarSolicitud = async (docId) => {
-    if (!confirm("¿Eliminar esta solicitud?")) return;
-    await deleteDoc(doc(db, "solicitudes", docId));
+    if (edad > 21) {
+      selRama.value = "Dirigente";
+      divSector.style.display = "block";
+    } else {
+      divSector.style.display = "none";
+      if (edad >= 5 && edad <= 6) selRama.value = "Castores";
+      else if (edad >= 7 && edad <= 10) selRama.value = "Manada";
+      else if (edad >= 11 && edad <= 13) selRama.value = "Scouts";
+      else if (edad >= 14 && edad <= 16) selRama.value = "Caminantes";
+      else if (edad >= 17 && edad <= 21) selRama.value = "Rovers";
+    }
   };
 
   window.guardarPerfil = async () => {
-    const nombre = document.getElementById("perfil-nombre").value.trim();
-    const edad   = document.getElementById("perfil-edad").value.trim();
-    const rama   = document.getElementById("perfil-rama").value;
-    const sector = document.getElementById("perfil-sector") ? document.getElementById("perfil-sector").value : "";
-    if (!nombre) { alert("El nombre no puede estar vacío."); return; }
+    const nombre = document.getElementById("perfil-nombre").value;
+    const edad = document.getElementById("perfil-edad").value;
+    const rama = document.getElementById("perfil-rama").value;
+    const sector = document.getElementById("perfil-sector").value;
 
     const updates = { nombre, edad, rama, sector };
     await updateDoc(doc(db, "perfiles", currentUser.uid), updates);
+    
+    // Actualizar perfil local y UI
     userProfile = { ...userProfile, ...updates };
-
-    // Actualizar posts anteriores del muro con el nuevo color/nombre
-    const q2 = query(collection(db, "muro"), orderBy("fecha", "desc"), limit(100));
-    const snap = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js")
-      .then(m => m.getDocs(q2));
-    const esDirigente = parseInt(edad) > 21;
-    const ramaColor = esDirigente ? "dirigente" : (RAMA_COLORES[rama] || "#1a3a6b");
-    const subnombrePost = getSubnombre(edad, rama, sector);
-    for (const d of snap.docs) {
-      if (d.data().uid === currentUser.uid) {
-        await updateDoc(doc(db, "muro", d.id), { nombre, ramaColor, subnombre: subnombrePost });
-      }
-    }
-
-    // Botón a gris
+    
     const btn = document.getElementById("btn-guardar-perfil");
-    if (btn) { btn.style.background = "#aaa"; btn.textContent = "✅ Guardado"; }
+    btn.style.background = "#aaa";
+    btn.style.cursor = "not-allowed";
+    btn.textContent = "✅ Guardado";
+    
     renderApp();
-    cargarDatosPerfil();
-  };
-
-  window.puedeAccederCarpeta = (rama) => {
-    if (!userProfile) return false;
-    if (userProfile.isAdmin) return true;
-    if (parseInt(userProfile.edad) > 21) return true;
-    return userProfile.rama === rama;
-  };
-
-  window.solicitarPermisoCarpeta = (rama) => {
-    const body = `Nombre: ${userProfile.nombre||""}%0AMail: ${currentUser.email}%0AEdad: ${userProfile.edad||""}%0ARama: ${rama}`;
-    window.open(`mailto:comunicacionespringles@gmail.com,grupo51@scouts.org.ar?subject=Solicitud%20acceso%20carpeta%20${encodeURIComponent(rama)}&body=${body}`, "_blank");
-    alert("✉️ Se abrió tu correo para enviar la solicitud.");
   };
 </script>
 
 <style>
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-:root {
-  --azul:#1a3a6b; --azul-med:#2a5298; --azul-cl:#d0dff5;
-  --rojo:#b01a1a; --amarillo:#e6b800;
-  --fondo:#f0f4ff; --white:#ffffff;
-  --text:#0e1a2c; --text-sec:#4a5a7b;
-  --shadow:0 2px 16px rgba(14,26,44,0.10); --radius:14px;
-}
-body { font-family:'Nunito',sans-serif; background:var(--fondo); color:var(--text); min-height:100vh; }
-.pantalla { display:none; min-height:100vh; }
+  :root { --azul:#1a3a6b; --rojo:#b01a1a; --amarillo:#e6b800; --fondo:#f0f4ff; --radius:14px; }
+  body { font-family:'Nunito', sans-serif; background:var(--fondo); margin:0; }
+  .app-header { background:var(--azul); color:white; padding:12px; display:flex; align-items:center; gap:10px; position:sticky; top:0; z-index:100; }
+  .header-redes { display:flex; gap:8px; margin-left:10px; }
+  .header-redes a img { width:24px; height:24px; filter: brightness(0) invert(1); }
+  
+  .post-card { background:white; margin:10px; padding:12px; border-radius:var(--radius); display:flex; gap:12px; box-shadow:0 2px 8px rgba(0,0,0,0.05); }
+  .post-avatar { width:45px; height:45px; border-radius:50%; object-fit:cover; }
+  .post-rama-tag { font-size:10px; background:#eee; padding:2px 6px; border-radius:6px; margin-left:auto; }
+  .post-link { color: #2a5298; text-decoration: underline; font-weight: 600; }
 
-/* LOGIN */
-#pantalla-login {
-  flex-direction:column; align-items:center; justify-content:center;
-  background:linear-gradient(145deg,#0d2247 0%,#1a3a6b 60%,#2a5298 100%);
-  padding:24px; text-align:center;
-}
-.login-logo {
-  width:120px; height:120px; border-radius:50%; background:white;
-  border:4px solid var(--amarillo); display:flex; align-items:center;
-  justify-content:center; overflow:hidden; margin:0 auto 20px;
-  box-shadow:0 4px 24px rgba(0,0,0,0.35);
-}
-.login-logo img { width:100%; height:100%; object-fit:cover; }
-#pantalla-login h1 { font-family:'Playfair Display',serif; color:white; font-size:28px; margin-bottom:6px; }
-#pantalla-login p  { color:rgba(255,255,255,0.7); font-size:14px; margin-bottom:32px; line-height:1.6; }
-.btn-google {
-  display:inline-flex; align-items:center; gap:12px; background:white; color:#333;
-  padding:14px 28px; border-radius:50px; font-size:15px; font-weight:700;
-  border:none; cursor:pointer; box-shadow:0 4px 16px rgba(0,0,0,0.2);
-  transition:transform 0.15s; font-family:'Nunito',sans-serif;
-}
-.btn-google:hover { transform:translateY(-2px); }
-.btn-google img { width:22px; }
-.login-info { margin-top:22px; color:rgba(255,255,255,0.5); font-size:12px; max-width:300px; line-height:1.6; }
-
-/* SOLICITUD */
-#pantalla-solicitud { flex-direction:column; align-items:center; justify-content:center; background:var(--fondo); padding:20px; }
-.solicitud-card { background:white; border-radius:var(--radius); padding:32px; max-width:460px; width:100%; box-shadow:var(--shadow); text-align:center; }
-.solicitud-card h2 { font-size:20px; margin-bottom:8px; color:var(--azul); }
-.solicitud-card > p { font-size:13px; color:var(--text-sec); margin-bottom:20px; line-height:1.6; }
-.form-group { text-align:left; margin-bottom:14px; }
-.form-group label { font-size:11px; font-weight:700; color:var(--text-sec); display:block; margin-bottom:4px; text-transform:uppercase; letter-spacing:0.04em; }
-.form-group input, .form-group select { width:100%; padding:10px 14px; border-radius:8px; border:1.5px solid var(--azul-cl); font-size:14px; font-family:'Nunito',sans-serif; }
-.btn-primary { background:var(--azul); color:white; border:none; border-radius:10px; padding:12px 24px; font-size:14px; font-weight:700; cursor:pointer; width:100%; margin-top:6px; font-family:'Nunito',sans-serif; transition:background 0.15s; }
-.btn-primary:hover { background:var(--azul-med); }
-#sol-enviado { display:none; margin-top:14px; background:#e8f5e9; color:#2e7d32; border-radius:8px; padding:12px; font-size:14px; font-weight:600; }
-
-/* APP */
-#pantalla-app { flex-direction:column; }
-
-/* HEADER */
-.app-header {
-  background:var(--azul); color:white; padding:10px 14px;
-  display:flex; align-items:center; gap:10px;
-  position:sticky; top:0; z-index:200;
-  box-shadow:0 2px 12px rgba(0,0,0,0.2); position:relative;
-}
-.app-header::after { content:''; position:absolute; bottom:0; left:0; right:0; height:3px; background:linear-gradient(90deg,#b01a1a,#e6b800,#b01a1a); }
-.header-logo { width:36px; height:36px; border-radius:50%; background:white; overflow:hidden; border:2px solid var(--amarillo); flex-shrink:0; }
-.header-logo img { width:100%; height:100%; object-fit:cover; }
-.header-title { font-family:'Playfair Display',serif; font-size:15px; flex:1; line-height:1.2; }
-.header-title span { font-family:'Nunito',sans-serif; font-size:10px; opacity:0.65; font-weight:400; display:block; }
-.header-user { text-align:right; }
-#nombre-header { font-size:12px; font-weight:700; display:block; }
-#subnombre-header { font-size:10px; opacity:0.7; }
-#avatar-header { width:34px; height:34px; border-radius:50%; object-fit:cover; border:2px solid #ccc; cursor:pointer; flex-shrink:0; }
-.btn-logout { background:none; border:1px solid rgba(255,255,255,0.3); color:white; border-radius:6px; padding:3px 8px; font-size:10px; cursor:pointer; font-family:'Nunito',sans-serif; }
-
-/* NAV */
-.nav-bottom { position:fixed; bottom:0; left:0; right:0; background:white; border-top:1px solid #e0e8f5; display:flex; z-index:200; box-shadow:0 -2px 12px rgba(14,26,44,0.08); }
-.nav-item { flex:1; display:flex; flex-direction:column; align-items:center; padding:7px 2px 9px; background:none; border:none; cursor:pointer; font-family:'Nunito',sans-serif; color:var(--text-sec); font-size:9px; font-weight:700; gap:1px; transition:color 0.15s; }
-.nav-item .nav-icon { font-size:20px; }
-.nav-item.active { color:var(--azul); }
-
-/* CONTENIDO */
-.app-content { flex:1; padding:14px 14px 78px; max-width:680px; margin:0 auto; width:100%; }
-.tab-panel { display:none; }
-.tab-panel.active { display:block; }
-
-/* ANDROID BANNER */
-.app-banner { background:linear-gradient(135deg,#1a3a6b,#2a5298); color:white; border-radius:var(--radius); padding:14px 16px; margin-bottom:14px; display:none; }
-.app-banner h3 { font-size:14px; margin-bottom:3px; }
-.app-banner p  { font-size:12px; opacity:0.8; margin-bottom:10px; }
-.app-banner button { background:var(--amarillo); color:var(--azul); border:none; border-radius:7px; padding:7px 14px; font-size:12px; font-weight:700; cursor:pointer; font-family:'Nunito',sans-serif; }
-
-/* MURO */
-.muro-composer { background:white; border-radius:var(--radius); box-shadow:var(--shadow); padding:14px; margin-bottom:14px; }
-.muro-composer-header { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
-.composer-avatar { width:38px; height:38px; border-radius:50%; object-fit:cover; flex-shrink:0; border:2px solid var(--azul-cl); }
-.muro-composer-header span { font-size:13px; color:var(--text-sec); font-weight:600; }
-.muro-composer textarea { width:100%; border:1.5px solid var(--azul-cl); border-radius:10px; padding:10px 12px; font-family:'Nunito',sans-serif; font-size:14px; resize:none; height:68px; color:var(--text); }
-.muro-composer-footer { display:flex; align-items:center; gap:6px; margin-top:8px; }
-.muro-contador { font-size:11px; color:var(--text-sec); margin-right:auto; }
-.btn-emoji { background:none; border:none; font-size:20px; cursor:pointer; }
-.btn-img-label { cursor:pointer; font-size:20px; }
-#muro-img-preview { max-width:100%; border-radius:10px; margin-top:8px; display:none; }
-.btn-publicar { background:var(--azul); color:white; border:none; border-radius:8px; padding:8px 16px; font-size:13px; font-weight:700; cursor:pointer; font-family:'Nunito',sans-serif; }
-.emoji-picker { display:none; flex-wrap:wrap; gap:4px; padding:8px; background:white; border:1px solid var(--azul-cl); border-radius:10px; margin-top:6px; }
-.emoji-picker.open { display:flex; }
-.emoji-btn { background:none; border:none; font-size:20px; cursor:pointer; }
-.post-card { background:white; border-radius:var(--radius); box-shadow:var(--shadow); padding:12px; margin-bottom:10px; display:flex; gap:10px; }
-.post-avatar { width:40px; height:40px; border-radius:50%; object-fit:cover; border:2.5px solid #ccc; flex-shrink:0; }
-.post-body { flex:1; min-width:0; }
-.post-header { display:flex; align-items:center; gap:5px; flex-wrap:wrap; margin-bottom:4px; }
-.post-header strong { font-size:13px; }
-.post-rama { font-size:10px; font-weight:700; padding:1px 7px; border-radius:8px; }
-.post-tiempo { font-size:10px; color:var(--text-sec); margin-left:auto; }
-.post-texto { font-size:13px; line-height:1.5; word-break:break-word; }
-.post-imagen { max-width:100%; border-radius:8px; margin-top:8px; }
-
-/* RAMAS */
-.ramas-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-.rama-card { background:white; border-radius:var(--radius); box-shadow:var(--shadow); overflow:hidden; cursor:pointer; transition:transform 0.15s; border-top:4px solid #ccc; }
-.rama-card:hover { transform:translateY(-2px); }
-.rama-card-inner { padding:12px; }
-.rama-card-header { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
-.rama-personaje { width:46px; height:46px; object-fit:contain; flex-shrink:0; }
-.rama-personaje-emoji { width:46px; height:46px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:24px; flex-shrink:0; }
-.rama-card h3 { font-size:13px; font-weight:800; line-height:1.2; }
-.rama-card .rama-edad { font-size:10px; color:var(--text-sec); font-weight:600; margin-top:1px; }
-.rama-card p { font-size:11px; color:var(--text-sec); line-height:1.4; }
-.btn-volver { background:none; border:none; color:var(--azul); font-size:14px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px; margin-bottom:14px; font-family:'Nunito',sans-serif; padding:0; }
-.rama-detalle-header { background:white; border-radius:var(--radius); padding:18px; margin-bottom:12px; box-shadow:var(--shadow); display:flex; align-items:center; gap:14px; }
-.rama-detalle-personaje { width:76px; height:76px; object-fit:contain; }
-.rama-detalle-emoji { width:76px; height:76px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:38px; }
-.rama-detalle-info h2 { font-size:18px; font-weight:800; }
-.rama-detalle-info .rama-nombre-grupo { font-size:12px; color:var(--text-sec); margin-top:2px; }
-.rama-edad-badge { display:inline-block; margin-top:6px; font-size:11px; font-weight:700; padding:3px 10px; border-radius:10px; color:white; }
-.info-card { background:white; border-radius:var(--radius); padding:14px; margin-bottom:10px; box-shadow:var(--shadow); }
-.info-card h4 { font-size:11px; font-weight:800; color:var(--text-sec); margin-bottom:6px; text-transform:uppercase; letter-spacing:0.05em; }
-.info-card p { font-size:13px; line-height:1.6; }
-.btn-carpeta { width:100%; padding:13px; border-radius:10px; border:none; font-size:13px; font-weight:700; cursor:pointer; font-family:'Nunito',sans-serif; display:flex; align-items:center; justify-content:center; gap:8px; transition:opacity 0.15s; }
-.btn-carpeta:hover { opacity:0.88; }
-
-/* IFRAME WRAPPERS */
-.calendario-wrap iframe { width:100%; border:none; border-radius:var(--radius); display:block; }
-.drive-wrap iframe { width:100%; height:460px; border:none; border-radius:var(--radius); display:block; }
-
-/* PERFIL */
-.perfil-card { background:white; border-radius:var(--radius); padding:22px; box-shadow:var(--shadow); }
-.perfil-foto-wrap { text-align:center; margin-bottom:18px; }
-.perfil-foto-actual { width:88px; height:88px; border-radius:50%; object-fit:cover; border:3px solid var(--azul-cl); margin:0 auto 10px; display:block; }
-.perfil-foto-label { display:inline-flex; align-items:center; gap:6px; background:var(--azul-cl); color:var(--azul); padding:7px 14px; border-radius:8px; font-size:13px; font-weight:700; cursor:pointer; }
-.perfil-form-group { margin-bottom:14px; }
-.perfil-form-group label { font-size:11px; font-weight:700; color:var(--text-sec); display:block; margin-bottom:4px; text-transform:uppercase; letter-spacing:0.04em; }
-.perfil-form-group input, .perfil-form-group select { width:100%; padding:10px 14px; border-radius:8px; border:1.5px solid var(--azul-cl); font-size:14px; font-family:'Nunito',sans-serif; }
-.rama-preview { display:flex; align-items:center; gap:8px; margin-top:8px; }
-.rama-color-dot { width:16px; height:16px; border-radius:50%; flex-shrink:0; }
-
-/* POST MENU */
-.post-menu-wrap { position:relative; margin-left:auto; }
-.post-menu-btn { background:none; border:none; font-size:18px; cursor:pointer; color:var(--text-sec); padding:0 4px; line-height:1; font-weight:700; }
-.post-menu { display:none; position:absolute; right:0; top:24px; background:white; border-radius:10px; box-shadow:0 4px 20px rgba(14,26,44,0.15); border:1px solid var(--azul-cl); min-width:140px; z-index:50; overflow:hidden; }
-.post-menu.open { display:block; }
-.post-menu button { display:block; width:100%; padding:10px 16px; background:none; border:none; text-align:left; font-size:13px; font-weight:600; cursor:pointer; font-family:'Nunito',sans-serif; }
-.post-menu button:hover { background:var(--fondo); }
-
-/* EDICIÓN INLINE */
-.edit-textarea { width:100%; border:1.5px solid var(--azul-cl); border-radius:8px; padding:8px 10px; font-family:'Nunito',sans-serif; font-size:13px; resize:none; height:60px; }
-.edit-footer { display:flex; align-items:center; gap:6px; margin-top:6px; }
-.edit-contador { font-size:11px; color:var(--text-sec); margin-right:auto; }
-.edit-cancel { background:none; border:1px solid #ccc; border-radius:6px; padding:5px 12px; font-size:12px; font-weight:700; cursor:pointer; font-family:'Nunito',sans-serif; }
-.edit-save { background:var(--azul); color:white; border:none; border-radius:6px; padding:5px 12px; font-size:12px; font-weight:700; cursor:pointer; font-family:'Nunito',sans-serif; }
-
-/* ADMIN PANEL */
-.admin-section-title { font-family:'Playfair Display',serif; font-size:20px; font-weight:700; margin-bottom:6px; color:var(--rojo); }
-.admin-subtitle { font-size:13px; color:var(--text-sec); margin-bottom:16px; }
-.solicitud-admin-card { background:white; border-radius:var(--radius); box-shadow:var(--shadow); padding:14px 16px; margin-bottom:10px; border-left:4px solid var(--azul); display:flex; align-items:flex-start; gap:12px; flex-wrap:wrap; }
-.solicitud-admin-card.aprobada { border-left-color:#2e7d32; background:#f9fff9; }
-.sol-admin-info { flex:1; min-width:0; }
-.sol-admin-info strong { font-size:15px; display:block; margin-bottom:2px; }
-.sol-admin-mail { font-size:12px; color:var(--text-sec); display:block; margin-bottom:6px; word-break:break-all; }
-.sol-admin-meta { display:flex; gap:10px; flex-wrap:wrap; }
-.sol-admin-meta span { font-size:12px; background:var(--fondo); padding:2px 8px; border-radius:6px; font-weight:600; }
-.sol-fecha { color:var(--text-sec) !important; font-weight:400 !important; }
-.sol-admin-acciones { display:flex; flex-direction:column; gap:6px; flex-shrink:0; }
-.btn-aprobar { background:#2e7d32; color:white; border:none; border-radius:8px; padding:8px 14px; font-size:12px; font-weight:700; cursor:pointer; font-family:'Nunito',sans-serif; }
-.btn-rechazar { background:var(--rojo-cl,#f5d0d0); color:var(--rojo); border:none; border-radius:8px; padding:8px 14px; font-size:12px; font-weight:700; cursor:pointer; font-family:'Nunito',sans-serif; }
-.btn-revocar { background:#fff3e0; color:#e65100; border:none; border-radius:8px; padding:6px 12px; font-size:11px; font-weight:700; cursor:pointer; font-family:'Nunito',sans-serif; }
-.badge-aprobado { font-size:12px; font-weight:700; color:#2e7d32; }
-.admin-empty { text-align:center; padding:32px; color:var(--text-sec); font-size:14px; font-weight:600; }
-
-@media (max-width:380px) { .ramas-grid { grid-template-columns:1fr; } }
+  .perfil-card { background:white; padding:20px; margin:15px; border-radius:var(--radius); }
+  .perfil-foto-actual { width:100px; height:100px; border-radius:50%; margin:0 auto 15px; display:block; }
+  .form-group { margin-bottom:12px; }
+  .form-group label { display:block; font-size:11px; font-weight:800; color:#555; }
+  .form-group input, .form-group select { width:100%; padding:10px; border-radius:8px; border:1px solid #ccc; margin-top:4px; }
+  
+  .btn-save { background:var(--azul); color:white; border:none; padding:12px; width:100%; border-radius:10px; font-weight:700; cursor:pointer; }
+  .ramas-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 15px; }
+  .rama-card { background: white; padding: 15px; border-radius: 12px; text-align: center; border-top: 4px solid var(--azul); }
+  .btn-open-folder { background: #4285F4; color: white; border: none; padding: 8px; border-radius: 6px; font-size: 11px; cursor: pointer; margin-top: 8px; }
 </style>
 </head>
 <body>
 
-<!-- LOGIN -->
-<div class="pantalla" id="pantalla-login" style="display:flex">
-  <div class="login-logo">
-    <img src="LogoPringles.png" alt="Logo Grupo Scout Pringles"
-      onerror="this.src='pringles-removebg-preview.png'">
-  </div>
+<div id="pantalla-login" class="pantalla" style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; background:var(--azul); color:white;">
   <h1>La Pringles</h1>
-  <p>Portal de Jóvenes Scouts<br>Grupo Cnel. Juan Pascual Pringles · Barracas</p>
-  <button class="btn-google" onclick="loginConGoogle()">
-    <img src="https://www.google.com/favicon.ico" alt="Google"> Ingresar con Google
-  </button>
-  <p class="login-info">El acceso requiere autorización previa de los dirigentes.<br>Si es tu primera vez, podrás solicitarlo después de entrar.</p>
+  <button onclick="loginConGoogle()" style="padding:12px 24px; border-radius:50px; border:none; cursor:pointer; font-weight:700;">Iniciar con Google</button>
 </div>
 
-<!-- SOLICITUD -->
-<div class="pantalla" id="pantalla-solicitud">
-  <div class="solicitud-card">
-    <div style="font-size:48px;margin-bottom:12px">🔒</div>
-    <h2>Acceso pendiente</h2>
-    <p>Tu cuenta <strong id="sol-mail"></strong> todavía no tiene acceso. Completá el formulario y los dirigentes te habilitarán.</p>
-    <div class="form-group"><label>Tu nombre completo</label><input type="text" id="sol-input-nombre" placeholder="Nombre y apellido"></div>
-    <div class="form-group"><label>Tu edad</label><input type="number" id="sol-input-edad" placeholder="Ej: 12" min="5" max="30"></div>
-    <div class="form-group">
-      <label>Rama a la que querés ingresar</label>
-      <select id="sol-input-rama">
-        <option value="">-- Seleccioná --</option>
-        <option value="Castores">🦫 Castores Persistentes (5-7 años)</option>
-        <option value="Manada">🐺 Manada Mohwa (7-11 años)</option>
-        <option value="Scouts">⚜️ Unidad Scout Águila (11-14 años)</option>
-        <option value="Caminantes">🥾 Comunidad Caminante Fénix (14-17 años)</option>
-        <option value="Rovers">⚓ Clan Rover Martín Fierro (17-21 años)</option>
-      </select>
-    </div>
-    <button class="btn-primary" onclick="enviarSolicitud()">📧 Enviar solicitud a los dirigentes</button>
-    <div id="sol-enviado">✅ ¡Solicitud enviada! Los dirigentes te avisarán cuando tu acceso esté listo.</div>
-    <p style="margin-top:14px;font-size:11px;color:#aaa">Solicitudes a: comunicacionespringles@gmail.com</p>
-    <button onclick="logout()" style="margin-top:10px;background:none;border:none;color:#aaa;font-size:12px;cursor:pointer;font-family:'Nunito',sans-serif;">Salir con otra cuenta</button>
-  </div>
-</div>
-
-<!-- APP -->
-<div class="pantalla" id="pantalla-app">
-
+<div id="pantalla-app" class="pantalla" style="display:none; flex-direction:column;">
   <header class="app-header">
-    <div class="header-logo">
-      <img src="LogoPringles.png" alt="Logo" onerror="this.src='pringles-removebg-preview.png'">
+    <img id="avatar-header" src="" style="width:35px; height:35px; border-radius:50%;">
+    <div style="flex:1">
+      <div id="nombre-header" style="font-size:14px; font-weight:800;"></div>
+      <div id="subnombre-header" style="font-size:10px; opacity:0.8;"></div>
     </div>
-    <div class="header-title">La Pringles <span>Portal Jóvenes</span></div>
-    <div class="header-user">
-      <span id="nombre-header">—</span>
-      <span id="subnombre-header"></span>
+    <div class="header-redes">
+      <a href="https://www.instagram.com/gruposcoutpringles/" target="_blank"><img src="https://cdn-icons-png.flaticon.com/512/174/174855.png"></a>
+      <a href="https://www.facebook.com/GrupoScoutPringles/" target="_blank"><img src="https://cdn-icons-png.flaticon.com/512/733/733547.png"></a>
+      <a href="https://www.facebook.com/museoscoutpostiglione" target="_blank"><img src="https://cdn-icons-png.flaticon.com/512/124/124010.png"></a>
+      <a href="https://www.youtube.com/@GrupoScoutCnel.JuanP.Pringles" target="_blank"><img src="https://cdn-icons-png.flaticon.com/512/1384/1384060.png"></a>
     </div>
-    <img id="avatar-header" src="" alt="Avatar" onclick="showTab('perfil')">
-    <button class="btn-logout" onclick="logout()">Salir</button>
   </header>
 
-  <div class="app-content">
-
-    <div class="app-banner" id="android-banner">
-      <h3>📱 Instalá La Pringles como app</h3>
-      <p>Tocá el menú del navegador (⋮) → "Agregar a pantalla de inicio"</p>
-      <button onclick="document.getElementById('android-banner').style.display='none'">Entendido ✓</button>
-    </div>
-
-    <!-- EL PLAYÓN -->
-    <div class="tab-panel" id="tab-playon">
-      <div style="font-family:'Playfair Display',serif;font-size:20px;font-weight:700;margin-bottom:14px;color:var(--azul)">🏟️ El Playón de la Pringles</div>
-      <div class="muro-composer">
-        <div class="muro-composer-header">
-          <img class="composer-avatar" id="composer-avatar" src="" alt="">
-          <span>¿Qué está pasando en La Pringles?</span>
-        </div>
-        <textarea id="muro-input" placeholder="Contá algo... (máx. 150 caracteres)" oninput="contarChars()" maxlength="150"></textarea>
-        <div class="muro-composer-footer">
-          <span class="muro-contador" id="muro-contador">0/150</span>
-          <button class="btn-emoji" onclick="toggleEmoji()">😊</button>
-          <button class="btn-publicar" onclick="publicarPost()">Publicar</button>
-        </div>
-        <div class="emoji-picker" id="emoji-picker">
-          <button class="emoji-btn" onclick="addEmoji('😀')">😀</button>
-          <button class="emoji-btn" onclick="addEmoji('😂')">😂</button>
-          <button class="emoji-btn" onclick="addEmoji('❤️')">❤️</button>
-          <button class="emoji-btn" onclick="addEmoji('👏')">👏</button>
-          <button class="emoji-btn" onclick="addEmoji('🔥')">🔥</button>
-          <button class="emoji-btn" onclick="addEmoji('⚜️')">⚜️</button>
-          <button class="emoji-btn" onclick="addEmoji('🏕️')">🏕️</button>
-          <button class="emoji-btn" onclick="addEmoji('🌲')">🌲</button>
-          <button class="emoji-btn" onclick="addEmoji('⭐')">⭐</button>
-          <button class="emoji-btn" onclick="addEmoji('🎉')">🎉</button>
-          <button class="emoji-btn" onclick="addEmoji('💪')">💪</button>
-          <button class="emoji-btn" onclick="addEmoji('🫂')">🫂</button>
-          <button class="emoji-btn" onclick="addEmoji('🦫')">🦫</button>
-          <button class="emoji-btn" onclick="addEmoji('🐺')">🐺</button>
-          <button class="emoji-btn" onclick="addEmoji('🦅')">🦅</button>
-          <button class="emoji-btn" onclick="addEmoji('⚓')">⚓</button>
-        </div>
-      </div>
-      <div id="muro-lista"></div>
-    </div>
-
-    <!-- RAMAS -->
-    <div class="tab-panel" id="tab-ramas">
-      <div style="font-family:'Playfair Display',serif;font-size:20px;font-weight:700;margin-bottom:14px;color:var(--azul)">⚜️ Nuestras Ramas</div>
-      <div id="ramas-lista" class="ramas-grid"></div>
-      <div id="rama-detalle-wrap"></div>
-    </div>
-
-    <!-- CALENDARIO -->
-    <div class="tab-panel" id="tab-calendario">
-      <div style="background:white;border-radius:var(--radius);padding:14px;box-shadow:var(--shadow)">
-        <div style="font-family:'Playfair Display',serif;font-size:18px;font-weight:700;margin-bottom:12px;color:var(--azul)">📅 Calendario del Grupo</div>
-        <div class="calendario-wrap">
-          <iframe
-            src="https://calendar.google.com/calendar/embed?src=6b47693e924a43f76b720582afb362b7d5b68e5bbd9613527fe93187d62c06f0%40group.calendar.google.com&ctz=America%2FArgentina%2FBuenos_Aires&hl=es&showTitle=0&mode=AGENDA&showPrint=0&showCalendars=0"
-            height="480" frameborder="0" scrolling="no">
-          </iframe>
-        </div>
-        <a href="https://calendar.google.com/calendar/embed?src=6b47693e924a43f76b720582afb362b7d5b68e5bbd9613527fe93187d62c06f0%40group.calendar.google.com&ctz=America%2FArgentina%2FBuenos_Aires"
-          target="_blank" style="display:block;margin-top:10px;text-align:center;font-size:13px;font-weight:700;color:var(--azul)">
-          Abrir en Google Calendar →
-        </a>
-      </div>
-    </div>
-
-    <!-- DOCUMENTOS -->
-    <div class="tab-panel" id="tab-documentos">
-      <div style="background:white;border-radius:var(--radius);padding:14px;box-shadow:var(--shadow)">
-        <div style="font-family:'Playfair Display',serif;font-size:18px;font-weight:700;margin-bottom:6px;color:var(--azul)">📁 Archivos del Grupo</div>
-        <p style="font-size:12px;color:var(--text-sec);margin-bottom:12px">Documentos y recursos compartidos. Algunos requieren permiso según tu rama.</p>
-        <div class="drive-wrap">
-          <iframe
-            src="https://drive.google.com/embeddedfolderview?id=1_YiYvP46poJtj1x62z08ZH5BS87szUZS#list"
-            frameborder="0" allowfullscreen>
-          </iframe>
-        </div>
-        <a href="https://drive.google.com/drive/folders/1_YiYvP46poJtj1x62z08ZH5BS87szUZS?usp=drive_link"
-          target="_blank" style="display:block;margin-top:10px;text-align:center;font-size:13px;font-weight:700;color:var(--azul)">
-          Abrir en Google Drive →
-        </a>
-      </div>
-    </div>
-
-    <!-- PERFIL -->
-    <div class="tab-panel" id="tab-perfil">
-      <div class="perfil-card">
-        <div style="font-family:'Playfair Display',serif;font-size:18px;font-weight:700;margin-bottom:16px;color:var(--azul)">👤 Mi Perfil</div>
-
-        <!-- Foto solo de muestra, sin cambiar -->
-        <div class="perfil-foto-wrap">
-          <img id="perfil-foto-actual" src="" alt="Foto de perfil" class="perfil-foto-actual" id="perfil-foto-actual">
-          <p style="font-size:11px;color:var(--text-sec);margin-top:6px">La foto se toma automáticamente de tu cuenta Google</p>
-        </div>
-
-        <!-- Nombre de usuario -->
-        <div class="perfil-form-group">
-          <label>Nombre de usuario (visible para todos)</label>
-          <input type="text" id="perfil-nombre" placeholder="Tu nombre o apodo scout" oninput="perfilModificado()">
-          <p id="perfil-nombre-real" style="font-size:11px;color:var(--text-sec);margin-top:4px"></p>
-        </div>
-
-        <!-- Edad → define rama automáticamente -->
-        <div class="perfil-form-group">
-          <label>Edad</label>
-          <input type="number" id="perfil-edad" placeholder="Tu edad" min="5" max="99"
-            oninput="onEdadChange();perfilModificado()">
-        </div>
-
-        <!-- Rama (deshabilitada si es dirigente, auto-asignada si no) -->
-        <div class="perfil-form-group" id="grupo-rama">
-          <label id="label-rama">Rama (según tu edad)</label>
-          <select id="perfil-rama" onchange="updateRamaPreview();perfilModificado()" disabled>
-            <option value="">-- Sin rama --</option>
-            <option value="Castores">🦫 Castores Persistentes (5-7 años)</option>
-            <option value="Manada">🐺 Manada Mohwa (7-11 años)</option>
-            <option value="Scouts">⚜️ Unidad Scout Águila (11-14 años)</option>
-            <option value="Caminantes">🥾 Comunidad Caminante Fénix (14-17 años)</option>
-            <option value="Rovers">⚓ Clan Rover Martín Fierro (17-21 años)</option>
-          </select>
-          <div class="rama-preview" id="rama-preview" style="display:none">
-            <div class="rama-color-dot" id="rama-color-dot"></div>
-            <span id="rama-preview-text" style="font-size:13px;font-weight:600"></span>
-          </div>
-        </div>
-
-        <!-- Sector (solo dirigentes) -->
-        <div class="perfil-form-group" id="grupo-sector" style="display:none">
-          <label>Sector / Rama de pertenencia (opcional)</label>
-          <select id="perfil-sector" onchange="perfilModificado()">
-            <option value="">-- Sin sector --</option>
-            <option value="Castores">🦫 Castores</option>
-            <option value="Manada">🐺 Manada</option>
-            <option value="Scouts">⚜️ Scouts</option>
-            <option value="Caminantes">🥾 Caminantes</option>
-            <option value="Rovers">⚓ Rovers</option>
-            <option value="Museo">🏛️ Museo</option>
-            <option value="Jefatura">🎖️ Jefatura</option>
-            <option value="Pañol">🪜 Pañol</option>
-          </select>
-          <div class="borde-dirigente-preview" style="margin-top:8px;display:flex;align-items:center;gap:8px">
-            <div style="width:18px;height:18px;border-radius:50%;background:linear-gradient(135deg,#1a3a6b,#e6b800,#b01a1a)"></div>
-            <span style="font-size:12px;font-weight:600;color:var(--text-sec)">Borde tricolor (Dirigente)</span>
-          </div>
-        </div>
-
-        <button class="btn-primary" id="btn-guardar-perfil" onclick="guardarPerfil()" style="background:#aaa;cursor:not-allowed">💾 Guardar cambios</button>
-      </div>
-    </div>
-
-    <!-- ADMIN -->
-    <div class="tab-panel" id="tab-admin">
-      <div class="admin-section-title">🛡️ Panel de Administración</div>
-      <p class="admin-subtitle">Solo visible para administradores. Aprobá o rechazá las solicitudes de acceso al portal.</p>
-      <div id="admin-solicitudes-lista">
-        <div class="admin-empty">Cargando solicitudes...</div>
-      </div>
-    </div>
-
-  </div>
-
-  <nav class="nav-bottom">
-    <button class="nav-item active" onclick="showTab('playon',this)"><span class="nav-icon">🏟️</span>El Playón</button>
-    <button class="nav-item" onclick="showTab('ramas',this)"><span class="nav-icon">⚜️</span>Ramas</button>
-    <button class="nav-item" onclick="showTab('calendario',this)"><span class="nav-icon">📅</span>Calendario</button>
-    <button class="nav-item" onclick="showTab('documentos',this)"><span class="nav-icon">📁</span>Archivos</button>
-    <button class="nav-item" onclick="showTab('perfil',this)"><span class="nav-icon">👤</span>Perfil</button>
-    <button class="nav-item" id="nav-admin" style="display:none;color:#b01a1a" onclick="showTab('admin',this)"><span class="nav-icon">🛡️</span>Admin</button>
+  <nav style="display:flex; background:white; border-bottom:1px solid #ddd;">
+    <button onclick="document.querySelectorAll('.tab').forEach(t=>t.style.display='none'); document.getElementById('tab-playon').style.display='block'" style="flex:1; padding:15px; border:none; background:none; font-weight:800;">Playón</button>
+    <button onclick="document.querySelectorAll('.tab').forEach(t=>t.style.display='none'); document.getElementById('tab-ramas').style.display='grid'" style="flex:1; padding:15px; border:none; background:none; font-weight:800;">Ramas</button>
+    <button onclick="document.querySelectorAll('.tab').forEach(t=>t.style.display='none'); document.getElementById('tab-perfil').style.display='block'" style="flex:1; padding:15px; border:none; background:none; font-weight:800;">Perfil</button>
   </nav>
 
+  <div id="tab-playon" class="tab">
+    <div style="padding:15px; background:white; margin:10px; border-radius:12px;">
+      <textarea id="muro-input" placeholder="¿Qué estás pensando?" style="width:100%; border:none; outline:none; resize:none;"></textarea>
+      <button onclick="publicarPost()" style="background:var(--azul); color:white; border:none; padding:8px 16px; border-radius:8px; float:right;">Publicar</button>
+      <div style="clear:both;"></div>
+    </div>
+    <div id="muro-lista"></div>
+  </div>
+
+  <div id="tab-ramas" class="tab ramas-grid" style="display:none;">
+    <div class="rama-card">
+      <strong>Castores</strong>
+      <button class="btn-open-folder" onclick="window.open('https://drive.google.com/drive/folders/1JbbIe0s5emgTXT9dxR6hB0dVueomFqqN?usp=drive_link')">Abrir carpeta</button>
+    </div>
+    <div class="rama-card">
+      <strong>Manada</strong>
+      <button class="btn-open-folder" onclick="window.open('https://drive.google.com/drive/folders/1rV7tNy9tXC6d9beHmc1qoy7uWICW1J9r?usp=drive_link')">Abrir carpeta</button>
+    </div>
+    <div class="rama-card">
+      <strong>Unidad Scout</strong>
+      <button class="btn-open-folder" onclick="window.open('https://drive.google.com/drive/folders/14MdqK9uXgnI_PL23SsL-3WS4MoxvJc3x?usp=drive_link')">Abrir carpeta</button>
+    </div>
+    <div class="rama-card">
+      <strong>Caminantes</strong>
+      <button class="btn-open-folder" onclick="window.open('https://drive.google.com/drive/folders/1sv--8BPtb4pWkiBKFuLiNKdiFCwxC6-v?usp=drive_link')">Abrir carpeta</button>
+    </div>
+    <div class="rama-card">
+      <strong>Rovers</strong>
+      <button class="btn-open-folder" onclick="window.open('https://drive.google.com/drive/folders/1tVtsdsp6YFb9rWvSwqejQHDxBe5TWjwU?usp=drive_link')">Abrir carpeta</button>
+    </div>
+  </div>
+
+  <div id="tab-perfil" class="tab" style="display:none;">
+    <div class="perfil-card">
+      <img id="perfil-foto-actual" src="" class="perfil-foto-actual">
+      <div class="form-group">
+        <label>Nombre de Usuario</label>
+        <input type="text" id="perfil-nombre" oninput="actualizarCamposPerfil()">
+      </div>
+      <div class="form-group">
+        <label>Edad</label>
+        <input type="number" id="perfil-edad" oninput="actualizarCamposPerfil()">
+      </div>
+      <div class="form-group">
+        <label>Rama</label>
+        <select id="perfil-rama" disabled>
+          <option value="">Selecciona edad primero</option>
+          <option value="Castores">Castores</option>
+          <option value="Manada">Manada</option>
+          <option value="Scouts">Unidad Scout</option>
+          <option value="Caminantes">Caminantes</option>
+          <option value="Rovers">Rovers</option>
+          <option value="Dirigente">Dirigente</option>
+        </select>
+      </div>
+      <div id="grupo-sector" class="form-group" style="display:none;">
+        <label>Sector</label>
+        <select id="perfil-sector" onchange="actualizarCamposPerfil()">
+          <option value="General">General</option>
+          <option value="Museo">Museo</option>
+          <option value="Jefatura">Jefatura</option>
+          <option value="Pañol">Pañol</option>
+        </select>
+      </div>
+      <button id="btn-guardar-perfil" class="btn-save" onclick="guardarPerfil()">Guardar cambios</button>
+      <button onclick="logout()" style="margin-top:20px; color:red; background:none; border:none; width:100%; cursor:pointer;">Cerrar Sesión</button>
+    </div>
+  </div>
 </div>
 
-<script>
-const RAMAS = [
-  { id:"castores",   nombre:"Castores",   nombreGrupo:"Castores Persistentes",       edades:"5 a 7 años",   color:"#FF6B00", emoji:"🦫", personaje:"PersonajeCastores.png",
-    descripcion:"¡Bienvenidos a la Colonia! Aquí empezamos nuestra gran aventura scout jugando y aprendiendo a compartir. Descubrimos la importancia de trabajar en equipo y cuidamos la naturaleza mientras hacemos nuestros primeros amigos.",
-    origen:"Surgió en la década de 1960 en Canadá, inspirada en la necesidad de incluir a los más pequeños en el movimiento antes de la edad de la Manada.", carpetaId:"CARPETA_CASTORES_ID" },
-  { id:"manada",     nombre:"Manada",     nombreGrupo:"Manada Mohwa",                edades:"7 a 11 años",  color:"#FFD600", emoji:"🐺", personaje:"PersonajeManada.png",
-    descripcion:"¡Entrá a la Selva de Seeonee! A través de las historias de \"El Libro de las Tierras Vírgenes\", aprendemos a valernos por nosotros mismos y a entender que \"somos de la misma sangre\". Una etapa llena de juegos y el inicio de nuestro compromiso.",
-    origen:"Creada por Robert Baden-Powell en 1916, usando el marco simbólico de Rudyard Kipling para los niños que aún eran muy jóvenes para ser scouts.", carpetaId:"CARPETA_MANADA_ID" },
-  { id:"scouts",     nombre:"Scouts",     nombreGrupo:"Unidad Scout Águila",          edades:"11 a 14 años", color:"#2E7D32", emoji:"⚜️", personaje:"PersonajeScouts.png",
-    descripcion:"Es el momento de salir al campo y vivir la aventura a fondo. Aprendés técnicas fundamentales: construcciones, orientación y campamentismo. Vos y tu patrulla toman las decisiones y lideran sus propios desafíos.",
-    origen:"Rama fundacional del movimiento, establecida por Baden-Powell tras el primer campamento en la Isla de Brownsea en 1907.", carpetaId:"CARPETA_SCOUTS_ID" },
-  { id:"caminantes", nombre:"Caminantes", nombreGrupo:"Comunidad Caminante Fénix",    edades:"14 a 17 años", color:"#1565C0", emoji:"🥾", personaje:"PersonajeCaminantes.png",
-    descripcion:"El horizonte es el límite. El desafío es salir a descubrir quién sos y qué impacto podés tener en tu entorno. Trazá tu propia ruta, trabajá en proyectos con amigos y viví la hermandad scout con autonomía.",
-    origen:"Evolucionó de los antiguos \"Senior Scouts\" para ofrecer mayor protagonismo y proyectos sociales para los adolescentes.", carpetaId:"CARPETA_CAMINANTES_ID" },
-  { id:"rovers",     nombre:"Rovers",     nombreGrupo:"Clan Rover \"Martín Fierro\"",  edades:"17 a 21 años", color:"#B71C1C", emoji:"⚓", personaje:"PersonajeRovers.png",
-    descripcion:"\"Servir\" es nuestro norte. Como Rover, el proyecto de vida y el servicio a los demás son los pilares. La etapa de mayor responsabilidad, donde el remo está en tus manos para navegar tu propia canoa.",
-    origen:"Formalizada por Baden-Powell en 1918 en \"Roverismo hacia el éxito\", dirigida a jóvenes que buscaban seguir sirviendo a la sociedad.", carpetaId:"CARPETA_ROVERS_ID" }
-];
-
-function showTab(id, btn) {
-  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
-  document.getElementById('tab-' + id).classList.add('active');
-  if (btn) btn.classList.add('active');
-  else {
-    const map={playon:0,ramas:1,calendario:2,documentos:3,perfil:4};
-    if(map[id]!==undefined) document.querySelectorAll('.nav-item')[map[id]].classList.add('active');
-  }
-  if (id==='ramas') renderRamas();
-  if (id==='perfil') cargarDatosPerfil();
-  if (id==='admin' && window.cargarSolicitudesAdmin) window.cargarSolicitudesAdmin();
-  window.scrollTo({top:0,behavior:'smooth'});
-}
-
-function renderRamas() {
-  const lista = document.getElementById('ramas-lista');
-  document.getElementById('rama-detalle-wrap').innerHTML = '';
-  lista.style.display = 'grid';
-  lista.innerHTML = RAMAS.map(r => `
-    <div class="rama-card" style="border-top-color:${r.color}" onclick="mostrarRama('${r.id}')">
-      <div class="rama-card-inner">
-        <div class="rama-card-header">
-          <img src="${r.personaje}" alt="${r.nombre}" class="rama-personaje"
-            onerror="this.style.display='none';this.nextSibling.style.display='flex'">
-          <div class="rama-personaje-emoji" style="background:${r.color}22;display:none">${r.emoji}</div>
-          <div><h3 style="color:${r.color}">${r.nombreGrupo}</h3><div class="rama-edad">${r.edades}</div></div>
-        </div>
-        <p>${r.descripcion.substring(0,80)}…</p>
-      </div>
-    </div>`).join('');
-}
-
-function mostrarRama(id) {
-  const r = RAMAS.find(x => x.id === id);
-  document.getElementById('ramas-lista').style.display = 'none';
-  const puedeAcceder = window.puedeAccederCarpeta ? window.puedeAccederCarpeta(r.nombre) : false;
-  document.getElementById('rama-detalle-wrap').innerHTML = `
-    <button class="btn-volver" onclick="renderRamas()">← Volver a Ramas</button>
-    <div class="rama-detalle-header">
-      <img src="${r.personaje}" alt="${r.nombre}" class="rama-detalle-personaje"
-        onerror="this.style.display='none';this.nextSibling.style.display='flex'">
-      <div class="rama-detalle-emoji" style="background:${r.color}22;display:none">${r.emoji}</div>
-      <div class="rama-detalle-info">
-        <h2 style="color:${r.color}">${r.nombreGrupo}</h2>
-        <div class="rama-nombre-grupo">Rama ${r.nombre} · Grupo Pringles</div>
-        <span class="rama-edad-badge" style="background:${r.color}">${r.edades}</span>
-      </div>
-    </div>
-    <div class="info-card"><h4>¿Qué hacemos?</h4><p>${r.descripcion}</p></div>
-    <div class="info-card"><h4>Origen mundial</h4><p>${r.origen}</p></div>
-    <div class="info-card"><h4>Carpeta de archivos</h4>
-      ${puedeAcceder
-        ? `<button class="btn-carpeta" style="background:${r.color};color:white"
-             onclick="window.open('https://drive.google.com/drive/folders/${r.carpetaId}','_blank')">
-             📁 Abrir carpeta ${r.nombre}</button>`
-        : `<p style="font-size:13px;color:var(--text-sec);margin-bottom:10px">No tenés acceso a esta carpeta todavía.</p>
-           <button class="btn-carpeta" style="background:#e0e8f5;color:var(--azul)"
-             onclick="solicitarPermisoCarpeta('${r.nombre}')">📧 Solicitar acceso a ${r.nombre}</button>`}
-    </div>`;
-}
-
-function toggleEmoji() { document.getElementById('emoji-picker').classList.toggle('open'); }
-function addEmoji(e) { const ta=document.getElementById('muro-input'); if(ta.value.length<150){ta.value+=e;contarChars();} }
-
-function cargarDatosPerfil() {
-  const up = window._userProfile ? window._userProfile() : null;
-  if (!up) return;
-  document.getElementById('perfil-nombre').value = up.nombre || '';
-  document.getElementById('perfil-edad').value   = up.edad   || '';
-  document.getElementById('perfil-rama').value   = up.rama   || '';
-  const src = up.fotoPerfil || 'https://ui-avatars.com/api/?name='+encodeURIComponent(up.nombre||'U')+'&background=1a3a6b&color=fff';
-  document.getElementById('perfil-foto-actual').src = src;
-  updateRamaPreview(); checkDirigente();
-}
-
-function previewFotoPerfil() {
-  const f=document.getElementById('perfil-foto-input').files[0]; if(!f) return;
-  const r=new FileReader(); r.onload=e=>document.getElementById('perfil-foto-actual').src=e.target.result; r.readAsDataURL(f);
-}
-
-function updateRamaPreview() {
-  const rama=document.getElementById('perfil-rama').value;
-  const cols={Castores:'#FF6B00',Manada:'#FFD600',Scouts:'#2E7D32',Caminantes:'#1565C0',Rovers:'#B71C1C'};
-  const prev=document.getElementById('rama-preview');
-  if(rama&&cols[rama]){document.getElementById('rama-color-dot').style.background=cols[rama];document.getElementById('rama-preview-text').textContent='Color borde: '+rama;prev.style.display='flex';}
-  else{prev.style.display='none';}
-}
-
-function checkDirigente() {
-  const edad=parseInt(document.getElementById('perfil-edad').value);
-  const sel=document.getElementById('perfil-rama');
-  if(edad>21){sel.value='';sel.disabled=true;document.getElementById('rama-preview').style.display='none';document.querySelector('#grupo-rama label').textContent='RANGO (DIRIGENTE)';}
-  else{sel.disabled=false;document.querySelector('#grupo-rama label').textContent='RAMA';}
-}
-
-function detectarAndroid() {
-  const ua=navigator.userAgent.toLowerCase();
-  const esAndroid=/android/.test(ua);
-  const standalone=window.matchMedia('(display-mode: standalone)').matches;
-  if(esAndroid&&!standalone) document.getElementById('android-banner').style.display='block';
-}
-
-setInterval(()=>{
-  const ah=document.getElementById('avatar-header');
-  const ca=document.getElementById('composer-avatar');
-  if(ah&&ca&&ah.src&&ah.src!==ca.src) ca.src=ah.src;
-},800);
-</script>
 </body>
 </html>
