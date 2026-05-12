@@ -97,6 +97,34 @@
     document.getElementById(id).style.display = "flex";
   }
 
+  // Colores de rama incluyendo sectores de dirigentes
+  const RAMA_COLORES_EXT = {
+    "Castores":   "#FF6B00",
+    "Manada":     "#FFD600",
+    "Scouts":     "#2E7D32",
+    "Caminantes": "#1565C0",
+    "Rovers":     "#B71C1C",
+    "Museo":      null, // degradado
+    "Jefatura":   null,
+    "Pañol":      null
+  };
+
+  function getBordeStyle(edad, rama, sector) {
+    const esDirigente = parseInt(edad) > 21;
+    if (esDirigente) return "border: 3px solid transparent; border-image: linear-gradient(135deg,#1a3a6b,#e6b800,#b01a1a) 1;";
+    if (rama && RAMA_COLORES[rama]) return `border: 3px solid ${RAMA_COLORES[rama]};`;
+    return "border: 3px solid #ccc;";
+  }
+
+  function getSubnombre(edad, rama, sector) {
+    const esDirigente = parseInt(edad) > 21;
+    if (esDirigente) {
+      const extra = sector || rama || "";
+      return "Dirigente" + (extra ? " · " + extra : "");
+    }
+    return rama || "Sin rama";
+  }
+
   function renderApp() {
     showPantalla("pantalla-app");
     const avatarSrc = userProfile.fotoPerfil ||
@@ -105,13 +133,31 @@
       const el = document.getElementById(id);
       if (el) el.src = avatarSrc;
     });
-    document.getElementById("nombre-header").textContent = userProfile.nombre || currentUser.email;
-    const edad = parseInt(userProfile.edad) || 0;
-    document.getElementById("subnombre-header").textContent = edad > 21 ? "Dirigente" : (userProfile.rama || "Sin rama");
-    if (userProfile.rama && RAMA_COLORES[userProfile.rama])
-      document.getElementById("avatar-header").style.border = `3px solid ${RAMA_COLORES[userProfile.rama]}`;
 
-    // Mostrar tab admin solo si es admin
+    const nombreDisplay = userProfile.nombre || currentUser.displayName || currentUser.email;
+    document.getElementById("nombre-header").textContent = nombreDisplay;
+    const edad   = userProfile.edad   || "";
+    const rama   = userProfile.rama   || "";
+    const sector = userProfile.sector || "";
+    document.getElementById("subnombre-header").textContent = getSubnombre(edad, rama, sector);
+
+    // Borde degradado para dirigentes
+    const av = document.getElementById("avatar-header");
+    const bordeStyle = getBordeStyle(edad, rama, sector);
+    av.setAttribute("style", av.getAttribute("style") || "");
+    if (parseInt(edad) > 21) {
+      av.style.border = "3px solid transparent";
+      av.style.backgroundImage = "linear-gradient(white,white), linear-gradient(135deg,#1a3a6b,#e6b800,#b01a1a)";
+      av.style.backgroundOrigin = "border-box";
+      av.style.backgroundClip = "padding-box, border-box";
+    } else if (rama && RAMA_COLORES[rama]) {
+      av.style.border = `3px solid ${RAMA_COLORES[rama]}`;
+      av.style.backgroundImage = "";
+    } else {
+      av.style.border = "3px solid #ccc";
+      av.style.backgroundImage = "";
+    }
+
     const navAdmin = document.getElementById("nav-admin");
     if (navAdmin) navAdmin.style.display = userProfile.isAdmin ? "flex" : "none";
 
@@ -138,18 +184,30 @@
     document.getElementById("sol-enviado").style.display = "block";
   };
 
+  function linkify(text) {
+    const urlReg = /(https?:\/\/[^\s]+)/g;
+    return text.replace(urlReg, url => `<a href="${url}" target="_blank" rel="noopener" class="post-link">${url}</a>`);
+  }
+
   function cargarMuro() {
     const q = query(collection(db, "muro"), orderBy("fecha", "desc"), limit(30));
     onSnapshot(q, snap => {
       const lista = document.getElementById("muro-lista");
       lista.innerHTML = "";
       snap.forEach(d => {
-        const data    = d.data();
-        const docId   = d.id;
-        const color   = data.ramaColor || "#1a3a6b";
-        const esPropio = currentUser && data.uid === currentUser.uid;
-        const esAdmin  = userProfile && userProfile.isAdmin;
+        const data       = d.data();
+        const docId      = d.id;
+        const esDirigente = data.ramaColor === "dirigente";
+        const color      = esDirigente ? "#1a3a6b" : (data.ramaColor || "#1a3a6b");
+        const esPropio   = currentUser && data.uid === currentUser.uid;
+        const esAdmin    = userProfile && userProfile.isAdmin;
         const puedeModificar = esPropio || esAdmin;
+        const subnombre  = data.subnombre || data.rama || "";
+
+        // Estilo del borde del avatar
+        const borderStyleAttr = esDirigente
+          ? `border:3px solid transparent;background-image:linear-gradient(white,white),linear-gradient(135deg,#1a3a6b,#e6b800,#b01a1a);background-origin:border-box;background-clip:padding-box,border-box;`
+          : `border:2.5px solid ${color};`;
 
         const div = document.createElement("div");
         div.className = "post-card";
@@ -157,12 +215,15 @@
         div.innerHTML = `
           <div class="post-avatar-wrap">
             <img src="${data.foto || 'https://ui-avatars.com/api/?name='+encodeURIComponent(data.nombre)+'&background=1a3a6b&color=fff'}"
-              class="post-avatar" style="border-color:${color}">
+              class="post-avatar" style="${borderStyleAttr}">
           </div>
           <div class="post-body">
             <div class="post-header">
-              <strong>${data.nombre}</strong>
-              ${data.rama ? `<span class="post-rama" style="background:${color}20;color:${color}">${data.rama}</span>` : ""}
+              <div class="post-autor">
+                <strong class="post-nombre">${data.nombre}</strong>
+                ${data.nombreReal ? `<span class="post-nombre-real">(${data.nombreReal})</span>` : ""}
+                ${subnombre ? `<span class="post-rama" style="background:${color}20;color:${color}">${subnombre}</span>` : ""}
+              </div>
               <span class="post-tiempo">${data.fecha ? formatTiempo(data.fecha.toDate()) : ""}</span>
               ${puedeModificar ? `
                 <div class="post-menu-wrap">
@@ -174,7 +235,7 @@
                 </div>` : ""}
             </div>
             <div class="post-texto-wrap" id="texto-${docId}">
-              <p class="post-texto">${data.texto}</p>
+              <p class="post-texto">${linkify(data.texto)}</p>
             </div>
             ${data.imagenUrl ? `<img src="${data.imagenUrl}" class="post-imagen">` : ""}
           </div>`;
@@ -236,14 +297,20 @@
     const texto = document.getElementById("muro-input").value.trim();
     if (!texto) { alert("Escribí algo antes de publicar."); return; }
     if (texto.length > 150) { alert("Máximo 150 caracteres."); return; }
+    const esDirigente = parseInt(userProfile.edad) > 21;
+    const ramaColor   = esDirigente ? "dirigente" : (RAMA_COLORES[userProfile.rama] || "#1a3a6b");
+    const subnombre   = getSubnombre(userProfile.edad, userProfile.rama, userProfile.sector);
     await addDoc(collection(db, "muro"), {
       texto,
-      nombre:    userProfile.nombre || currentUser.email,
-      foto:      userProfile.fotoPerfil || "",
-      rama:      userProfile.rama || "",
-      ramaColor: RAMA_COLORES[userProfile.rama] || "#1a3a6b",
-      uid:       currentUser.uid,
-      fecha:     serverTimestamp()
+      nombre:     userProfile.nombre || currentUser.displayName || currentUser.email,
+      nombreReal: currentUser.displayName || "",
+      foto:       userProfile.fotoPerfil || "",
+      rama:       userProfile.rama || "",
+      sector:     userProfile.sector || "",
+      subnombre,
+      ramaColor,
+      uid:        currentUser.uid,
+      fecha:      serverTimestamp()
     });
     document.getElementById("muro-input").value = "";
     document.getElementById("muro-contador").textContent = "0/150";
@@ -319,22 +386,34 @@
   };
 
   window.guardarPerfil = async () => {
-    const nombre   = document.getElementById("perfil-nombre").value.trim();
-    const edad     = document.getElementById("perfil-edad").value.trim();
-    const rama     = document.getElementById("perfil-rama").value;
-    const fotoFile = document.getElementById("perfil-foto-input").files[0];
-    let fotoPerfil = userProfile.fotoPerfil || "";
-    if (fotoFile) {
-      try {
-        const fotoRef = ref(storage, `perfiles/${currentUser.uid}/foto`);
-        await uploadBytes(fotoRef, fotoFile);
-        fotoPerfil = await getDownloadURL(fotoRef);
-      } catch(e) { console.error(e); }
+    const nombre = document.getElementById("perfil-nombre").value.trim();
+    const edad   = document.getElementById("perfil-edad").value.trim();
+    const rama   = document.getElementById("perfil-rama").value;
+    const sector = document.getElementById("perfil-sector") ? document.getElementById("perfil-sector").value : "";
+    if (!nombre) { alert("El nombre no puede estar vacío."); return; }
+
+    const updates = { nombre, edad, rama, sector };
+    await updateDoc(doc(db, "perfiles", currentUser.uid), updates);
+    userProfile = { ...userProfile, ...updates };
+
+    // Actualizar posts anteriores del muro con el nuevo color/nombre
+    const q2 = query(collection(db, "muro"), orderBy("fecha", "desc"), limit(100));
+    const snap = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js")
+      .then(m => m.getDocs(q2));
+    const esDirigente = parseInt(edad) > 21;
+    const ramaColor = esDirigente ? "dirigente" : (RAMA_COLORES[rama] || "#1a3a6b");
+    const subnombrePost = getSubnombre(edad, rama, sector);
+    for (const d of snap.docs) {
+      if (d.data().uid === currentUser.uid) {
+        await updateDoc(doc(db, "muro", d.id), { nombre, ramaColor, subnombre: subnombrePost });
+      }
     }
-    await updateDoc(doc(db, "perfiles", currentUser.uid), { nombre, edad, rama, fotoPerfil });
-    userProfile = { ...userProfile, nombre, edad, rama, fotoPerfil };
-    alert("✅ Perfil guardado.");
+
+    // Botón a gris
+    const btn = document.getElementById("btn-guardar-perfil");
+    if (btn) { btn.style.background = "#aaa"; btn.textContent = "✅ Guardado"; }
     renderApp();
+    cargarDatosPerfil();
   };
 
   window.puedeAccederCarpeta = (rama) => {
@@ -686,31 +765,65 @@ body { font-family:'Nunito',sans-serif; background:var(--fondo); color:var(--tex
     <div class="tab-panel" id="tab-perfil">
       <div class="perfil-card">
         <div style="font-family:'Playfair Display',serif;font-size:18px;font-weight:700;margin-bottom:16px;color:var(--azul)">👤 Mi Perfil</div>
+
+        <!-- Foto solo de muestra, sin cambiar -->
         <div class="perfil-foto-wrap">
-          <img id="perfil-foto-actual" src="" alt="Foto de perfil" class="perfil-foto-actual">
-          <label class="perfil-foto-label">
-            📷 Cambiar foto
-            <input type="file" id="perfil-foto-input" accept="image/*" style="display:none" onchange="previewFotoPerfil()">
-          </label>
+          <img id="perfil-foto-actual" src="" alt="Foto de perfil" class="perfil-foto-actual" id="perfil-foto-actual">
+          <p style="font-size:11px;color:var(--text-sec);margin-top:6px">La foto se toma automáticamente de tu cuenta Google</p>
         </div>
-        <div class="perfil-form-group"><label>Nombre de usuario</label><input type="text" id="perfil-nombre" placeholder="Tu nombre o apodo scout"></div>
-        <div class="perfil-form-group"><label>Edad</label><input type="number" id="perfil-edad" placeholder="Tu edad" min="5" max="99" onchange="checkDirigente()"></div>
+
+        <!-- Nombre de usuario -->
+        <div class="perfil-form-group">
+          <label>Nombre de usuario (visible para todos)</label>
+          <input type="text" id="perfil-nombre" placeholder="Tu nombre o apodo scout" oninput="perfilModificado()">
+          <p id="perfil-nombre-real" style="font-size:11px;color:var(--text-sec);margin-top:4px"></p>
+        </div>
+
+        <!-- Edad → define rama automáticamente -->
+        <div class="perfil-form-group">
+          <label>Edad</label>
+          <input type="number" id="perfil-edad" placeholder="Tu edad" min="5" max="99"
+            oninput="onEdadChange();perfilModificado()">
+        </div>
+
+        <!-- Rama (deshabilitada si es dirigente, auto-asignada si no) -->
         <div class="perfil-form-group" id="grupo-rama">
-          <label>Rama</label>
-          <select id="perfil-rama" onchange="updateRamaPreview()">
+          <label id="label-rama">Rama (según tu edad)</label>
+          <select id="perfil-rama" onchange="updateRamaPreview();perfilModificado()" disabled>
             <option value="">-- Sin rama --</option>
-            <option value="Castores">🦫 Castores Persistentes</option>
-            <option value="Manada">🐺 Manada Mohwa</option>
-            <option value="Scouts">⚜️ Unidad Scout Águila</option>
-            <option value="Caminantes">🥾 Comunidad Caminante Fénix</option>
-            <option value="Rovers">⚓ Clan Rover Martín Fierro</option>
+            <option value="Castores">🦫 Castores Persistentes (5-7 años)</option>
+            <option value="Manada">🐺 Manada Mohwa (7-11 años)</option>
+            <option value="Scouts">⚜️ Unidad Scout Águila (11-14 años)</option>
+            <option value="Caminantes">🥾 Comunidad Caminante Fénix (14-17 años)</option>
+            <option value="Rovers">⚓ Clan Rover Martín Fierro (17-21 años)</option>
           </select>
           <div class="rama-preview" id="rama-preview" style="display:none">
             <div class="rama-color-dot" id="rama-color-dot"></div>
             <span id="rama-preview-text" style="font-size:13px;font-weight:600"></span>
           </div>
         </div>
-        <button class="btn-primary" onclick="guardarPerfil()">💾 Guardar cambios</button>
+
+        <!-- Sector (solo dirigentes) -->
+        <div class="perfil-form-group" id="grupo-sector" style="display:none">
+          <label>Sector / Rama de pertenencia (opcional)</label>
+          <select id="perfil-sector" onchange="perfilModificado()">
+            <option value="">-- Sin sector --</option>
+            <option value="Castores">🦫 Castores</option>
+            <option value="Manada">🐺 Manada</option>
+            <option value="Scouts">⚜️ Scouts</option>
+            <option value="Caminantes">🥾 Caminantes</option>
+            <option value="Rovers">⚓ Rovers</option>
+            <option value="Museo">🏛️ Museo</option>
+            <option value="Jefatura">🎖️ Jefatura</option>
+            <option value="Pañol">🪜 Pañol</option>
+          </select>
+          <div class="borde-dirigente-preview" style="margin-top:8px;display:flex;align-items:center;gap:8px">
+            <div style="width:18px;height:18px;border-radius:50%;background:linear-gradient(135deg,#1a3a6b,#e6b800,#b01a1a)"></div>
+            <span style="font-size:12px;font-weight:600;color:var(--text-sec)">Borde tricolor (Dirigente)</span>
+          </div>
+        </div>
+
+        <button class="btn-primary" id="btn-guardar-perfil" onclick="guardarPerfil()" style="background:#aaa;cursor:not-allowed">💾 Guardar cambios</button>
       </div>
     </div>
 
