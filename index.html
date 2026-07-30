@@ -1,20 +1,18 @@
 <!DOCTYPE html>
 <html lang="es">
-<link href="https://fonts.googleapis.com/css2?family=Nunito..." rel="stylesheet"><meta charset="UTF-8">
+<head>
+<meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>La Pringles — Portal Jóvenes</title>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
-  
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
     from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-import { getFirestore, doc, getDoc, setDoc, addDoc, collection,
-query, orderBy, limit, onSnapshot, serverTimestamp, updateDoc, deleteDoc, getDocs,
-where, writeBatch }
-from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+  import { getFirestore, doc, getDoc, setDoc, addDoc, collection,
+    query, orderBy, limit, onSnapshot, serverTimestamp, updateDoc, deleteDoc, getDocs }
+    from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
   import { getStorage, ref, uploadBytes, getDownloadURL }
     from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
 
@@ -426,146 +424,6 @@ from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
   window._doc     = doc;
   window._updateDoc = updateDoc;
   window._db_ref  = db;
-  
-// ============ MÓDULO PRESENTES ============
-let jovenesCache = [];
-let unsubJovenesListener = null;
-
-function calcularEdad(fechaISO) {
-  if (!fechaISO) return null;
-  const hoy = new Date();
-  const nac = new Date(fechaISO + "T00:00:00");
-  let edad = hoy.getFullYear() - nac.getFullYear();
-  const m = hoy.getMonth() - nac.getMonth();
-  if (m < 0 || (m === 0 && hoy.getDate() < nac.getDate())) edad--;
-  return edad;
-}
-
-function diasHastaCumple(fechaISO) {
-  if (!fechaISO) return 999;
-  const hoy = new Date(); hoy.setHours(0,0,0,0);
-  const nac = new Date(fechaISO + "T00:00:00");
-  let prox = new Date(hoy.getFullYear(), nac.getMonth(), nac.getDate());
-  if (prox < hoy) prox = new Date(hoy.getFullYear()+1, nac.getMonth(), nac.getDate());
-  return Math.round((prox - hoy) / 86400000);
-}
-
-// --- Cargar jóvenes (con o sin filtro de rama), en tiempo real ---
-window.cargarJovenes = () => {
-  if (unsubJovenesListener) unsubJovenesListener();
-  const ramaSel = document.getElementById("jovenes-rama-select")?.value || "";
-  let q = ramaSel
-    ? query(collection(db, "jovenes"), where("rama", "==", ramaSel), where("activo", "==", true), orderBy("apellido"))
-    : query(collection(db, "jovenes"), where("activo", "==", true), orderBy("apellido"));
-  unsubJovenesListener = onSnapshot(q, snap => {
-    jovenesCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    window.renderJovenesLista();
-    window.renderCumplesProximos();
-  });
-};
-
-// --- Alta / edición de un joven ---
-window.guardarJoven = async (id, datos) => {
-  if (id) {
-    await updateDoc(doc(db, "jovenes", id), { ...datos, actualizadoEn: serverTimestamp() });
-  } else {
-    await addDoc(collection(db, "jovenes"), {
-      ...datos, activo: true, historialRamas: [{ rama: datos.rama, desde: new Date().toISOString().slice(0,10), hasta: null }],
-      creadoEn: serverTimestamp(), actualizadoEn: serverTimestamp()
-    });
-  }
-};
-
-// --- Cambiar / trasladar de rama (individual) ---
-window.cambiarRamaJoven = async (id, ramaActual, ramaNueva) => {
-  const jRef = doc(db, "jovenes", id);
-  const snap = await getDoc(jRef);
-  const historial = snap.data().historialRamas || [];
-  const hoy = new Date().toISOString().slice(0,10);
-  const cerrado = historial.map(h => h.hasta ? h : (h.rama === ramaActual ? { ...h, hasta: hoy } : h));
-  cerrado.push({ rama: ramaNueva, desde: hoy, hasta: null });
-  await updateDoc(jRef, { rama: ramaNueva, historialRamas: cerrado, actualizadoEn: serverTimestamp() });
-};
-
-// --- Traslado masivo (ej: toda una camada que sube de rama) ---
-window.trasladarMasivo = async (ids, ramaNueva) => {
-  const batch = writeBatch(db);
-  const hoy = new Date().toISOString().slice(0,10);
-  for (const id of ids) {
-    const jRef = doc(db, "jovenes", id);
-    const snap = await getDoc(jRef);
-    const data = snap.data();
-    const historial = (data.historialRamas || []).map(h => h.hasta ? h : { ...h, hasta: hoy });
-    historial.push({ rama: ramaNueva, desde: hoy, hasta: null });
-    batch.update(jRef, { rama: ramaNueva, historialRamas: historial, actualizadoEn: serverTimestamp() });
-  }
-  await batch.commit();
-};
-
-// --- Baja lógica ---
-window.darDeBajaJoven = async (id) => {
-  if (!confirm("¿Dar de baja a este joven? No se borran sus datos históricos.")) return;
-  await updateDoc(doc(db, "jovenes", id), { activo: false, actualizadoEn: serverTimestamp() });
-};
-
-// --- Tomar lista: cargar jóvenes de la rama + su estado ya guardado para esa fecha (si existe) ---
-window.cargarListaAsistencia = async () => {
-  const rama = document.getElementById("lista-rama-select").value;
-  const fecha = document.getElementById("lista-fecha-input").value;
-  const wrap = document.getElementById("lista-asistencia-wrap");
-  if (!rama || !fecha) { wrap.innerHTML = `<p class="presentes-empty">Elegí rama y fecha para tomar lista.</p>`; return; }
-
-  const qJ = query(collection(db, "jovenes"), where("rama", "==", rama), where("activo", "==", true), orderBy("apellido"));
-  const snapJ = await getDocs(qJ);
-  const jovenes = snapJ.docs.map(d => ({ id: d.id, ...d.data() }));
-
-  const qA = query(collection(db, "asistencias"), where("rama", "==", rama), where("fecha", "==", fecha));
-  const snapA = await getDocs(qA);
-  const marcados = {};
-  snapA.forEach(d => { marcados[d.data().jovenId] = d.data().presente; });
-
-  if (jovenes.length === 0) {
-    wrap.innerHTML = `<p class="presentes-empty">No hay jóvenes cargados en ${rama}.</p>`;
-    return;
-  }
-
-  wrap.innerHTML = jovenes.map(j => `
-    <div class="joven-check-row">
-      <span class="nombre">${j.nombre} ${j.apellido}</span>
-      <span class="edad-tag">${calcularEdad(j.fechaNacimiento) ?? "—"} años</span>
-      <input type="checkbox" id="check-${j.id}" ${marcados[j.id] ? "checked" : ""}>
-    </div>`).join("") +
-    `<button class="btn-guardar-lista" onclick="guardarListaAsistencia('${rama}','${fecha}')">💾 Guardar asistencia</button>`;
-
-  wrap.dataset.jovenesIds = JSON.stringify(jovenes.map(j => ({ id: j.id, nombre: `${j.nombre} ${j.apellido}` })));
-};
-
-window.guardarListaAsistencia = async (rama, fecha) => {
-  const wrap = document.getElementById("lista-asistencia-wrap");
-  const jovenes = JSON.parse(wrap.dataset.jovenesIds || "[]");
-  const batch = writeBatch(db);
-  jovenes.forEach(j => {
-    const presente = document.getElementById(`check-${j.id}`).checked;
-    const idDoc = `${rama}_${fecha}_${j.id}`;
-    batch.set(doc(db, "asistencias", idDoc), {
-      jovenId: j.id, jovenNombre: j.nombre, rama, fecha, presente,
-      marcadoPor: currentUser.uid, marcadoEn: serverTimestamp()
-    });
-  });
-  await batch.commit();
-  alert("✅ Asistencia guardada.");
-};
-
-// --- Métricas: traer asistencias en rango de fechas y agregar por día ---
-window.obtenerAsistenciasRango = async (rama, desde, hasta) => {
-  let q = rama
-    ? query(collection(db, "asistencias"), where("rama", "==", rama), where("fecha", ">=", desde), where("fecha", "<=", hasta))
-    : query(collection(db, "asistencias"), where("fecha", ">=", desde), where("fecha", "<=", hasta));
-  const snap = await getDocs(q);
-  return snap.docs.map(d => d.data());
-};
-
-window._presentesDb = { db, collection, doc, query, where, orderBy, getDocs, addDoc, updateDoc, deleteDoc };
 </script>
 
 <style>
@@ -771,33 +629,6 @@ body { font-family:'Nunito',sans-serif; background:var(--fondo); color:var(--tex
 .borde-dirigente-preview { margin-top:8px; display:flex; align-items:center; gap:8px; }
 
 @media (max-width:380px) { .ramas-grid { grid-template-columns:1fr; } }
-  :root {
-  --amarillo-oficial:#fcee01; --rojo-oficial:#bd0314; --azul-oficial:#00297b;
-}
-.presentes-subnav { display:flex; gap:6px; margin-bottom:14px; overflow-x:auto; }
-.presentes-subtab { flex-shrink:0; background:white; border:1.5px solid var(--azul-cl); color:var(--text-sec); border-radius:20px; padding:7px 14px; font-size:12px; font-weight:700; cursor:pointer; font-family:'Nunito',sans-serif; }
-.presentes-subtab.active { background:var(--azul-oficial); color:white; border-color:var(--azul-oficial); }
-.presentes-sub { display:none; }
-.presentes-sub.active { display:block; }
-.presentes-filtros { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
-.presentes-filtros select, .presentes-filtros input { padding:8px 12px; border-radius:8px; border:1.5px solid var(--azul-cl); font-size:13px; font-family:'Nunito',sans-serif; }
-.btn-presentes-accion { background:var(--azul-oficial); color:white; border:none; border-radius:8px; padding:8px 14px; font-size:12px; font-weight:700; cursor:pointer; font-family:'Nunito',sans-serif; }
-.presentes-empty { text-align:center; padding:24px; color:var(--text-sec); font-size:13px; }
-.joven-check-row { display:flex; align-items:center; gap:10px; background:white; border-radius:10px; padding:10px 14px; margin-bottom:6px; box-shadow:var(--shadow); }
-.joven-check-row .nombre { flex:1; font-size:13px; font-weight:600; }
-.joven-check-row .edad-tag { font-size:11px; color:var(--text-sec); }
-.joven-check-row input[type=checkbox] { width:20px; height:20px; accent-color: var(--rojo-oficial); }
-.btn-guardar-lista { background:var(--rojo-oficial); color:white; border:none; border-radius:10px; padding:12px; width:100%; font-size:14px; font-weight:700; cursor:pointer; margin-top:10px; font-family:'Nunito',sans-serif; }
-.joven-card { background:white; border-radius:10px; padding:12px 14px; margin-bottom:8px; box-shadow:var(--shadow); display:flex; align-items:center; gap:10px; }
-.joven-card .info { flex:1; }
-.joven-card .info strong { font-size:13px; display:block; }
-.joven-card .info span { font-size:11px; color:var(--text-sec); }
-.joven-card-acciones { display:flex; gap:6px; }
-.joven-card-acciones button { background:none; border:1px solid var(--azul-cl); border-radius:6px; padding:5px 9px; font-size:11px; cursor:pointer; }
-.cumple-banner { background:linear-gradient(135deg,var(--amarillo-oficial),#fff6a8); border-radius:10px; padding:10px 14px; margin-bottom:12px; font-size:12px; font-weight:700; color:#5a4a00; }
-.form-joven-card { background:white; border-radius:var(--radius); padding:16px; margin-bottom:14px; box-shadow:var(--shadow); }
-.form-joven-card .form-row { display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
-.form-joven-card input, .form-joven-card select { flex:1; min-width:120px; padding:9px 12px; border-radius:8px; border:1.5px solid var(--azul-cl); font-size:13px; font-family:'Nunito',sans-serif; }
 </style>
 </head>
 <body>
@@ -929,66 +760,7 @@ body { font-family:'Nunito',sans-serif; background:var(--fondo); color:var(--tex
       <div id="ramas-lista" class="ramas-grid"></div>
       <div id="rama-detalle-wrap"></div>
     </div>
-<!-- PRESENTES -->
-<div class="tab-panel" id="tab-presentes">
-  <div style="font-family:'Playfair Display',serif;font-size:20px;font-weight:700;margin-bottom:14px;color:var(--azul)">✅ Presentes</div>
 
-  <div class="presentes-subnav">
-    <button class="presentes-subtab active" onclick="showPresentesSub('lista',this)">📋 Tomar lista</button>
-    <button class="presentes-subtab" onclick="showPresentesSub('jovenes',this)">👥 Jóvenes</button>
-    <button class="presentes-subtab" onclick="showPresentesSub('metricas',this)">📊 Métricas</button>
-  </div>
-
-  <div class="presentes-sub active" id="presentes-sub-lista">
-    <div class="presentes-filtros">
-      <select id="lista-rama-select" onchange="cargarListaAsistencia()">
-        <option value="">-- Elegí una rama --</option>
-        <option value="Castores">🦫 Castores</option>
-        <option value="Manada">🐺 Manada</option>
-        <option value="Scouts">⚜️ Scouts</option>
-        <option value="Caminantes">🥾 Caminantes</option>
-        <option value="Rovers">⚓ Rovers</option>
-      </select>
-      <input type="date" id="lista-fecha-input" onchange="cargarListaAsistencia()">
-    </div>
-    <div id="lista-asistencia-wrap"><p class="presentes-empty">Elegí rama y fecha para tomar lista.</p></div>
-  </div>
-
-  <div class="presentes-sub" id="presentes-sub-jovenes">
-    <div class="presentes-filtros">
-      <select id="jovenes-rama-select" onchange="cargarJovenes()">
-        <option value="">Todas las ramas</option>
-        <option value="Castores">🦫 Castores</option>
-        <option value="Manada">🐺 Manada</option>
-        <option value="Scouts">⚜️ Scouts</option>
-        <option value="Caminantes">🥾 Caminantes</option>
-        <option value="Rovers">⚓ Rovers</option>
-      </select>
-      <button class="btn-presentes-accion" onclick="abrirFormJoven()">➕ Agregar joven</button>
-      <button class="btn-presentes-accion" onclick="exportarJovenesCSV()">⬇️ Descargar CSV</button>
-    </div>
-    <div id="cumples-proximos"></div>
-    <div id="form-joven-wrap"></div>
-    <div id="jovenes-lista-wrap"></div>
-  </div>
-
-  <div class="presentes-sub" id="presentes-sub-metricas">
-    <div class="presentes-filtros">
-      <select id="metricas-rama-select" onchange="cargarMetricas()">
-        <option value="">Todas las ramas</option>
-        <option value="Castores">🦫 Castores</option>
-        <option value="Manada">🐺 Manada</option>
-        <option value="Scouts">⚜️ Scouts</option>
-        <option value="Caminantes">🥾 Caminantes</option>
-        <option value="Rovers">⚓ Rovers</option>
-      </select>
-      <input type="date" id="metricas-desde-input" onchange="cargarMetricas()">
-      <input type="date" id="metricas-hasta-input" onchange="cargarMetricas()">
-    </div>
-    <canvas id="grafico-presentismo" height="220"></canvas>
-    <div id="metricas-resumen"></div>
-  </div>
-</div>
     <!-- CALENDARIO -->
     <div class="tab-panel" id="tab-calendario">
       <div style="background:white;border-radius:var(--radius);padding:14px;box-shadow:var(--shadow)">
@@ -1106,7 +878,6 @@ body { font-family:'Nunito',sans-serif; background:var(--fondo); color:var(--tex
   <nav class="nav-bottom">
     <button class="nav-item active" onclick="showTab('playon',this)"><span class="nav-icon">🏟️</span>El Playón</button>
     <button class="nav-item" onclick="showTab('ramas',this)"><span class="nav-icon">⚜️</span>Ramas</button>
-    <button class="nav-item" onclick="showTab('presentes',this)"><span class="nav-icon">✅</span>Presentes</button>
     <button class="nav-item" onclick="showTab('calendario',this)"><span class="nav-icon">📅</span>Calendario</button>
     <button class="nav-item" onclick="showTab('documentos',this)"><span class="nav-icon">📁</span>Archivos</button>
     <button class="nav-item" onclick="showTab('perfil',this)"><span class="nav-icon">👤</span>Perfil</button>
@@ -1332,146 +1103,6 @@ setInterval(() => {
   const ca = document.getElementById('composer-avatar');
   if (ah && ca && ah.src && ah.src !== ca.src) ca.src = ah.src;
 }, 800);
-  // ===================== PRESENTES: sub-tabs =====================
-function showPresentesSub(id, btn) {
-  document.querySelectorAll('.presentes-sub').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.presentes-subtab').forEach(b => b.classList.remove('active'));
-  document.getElementById('presentes-sub-' + id).classList.add('active');
-  if (btn) btn.classList.add('active');
-  if (id === 'jovenes') window.cargarJovenes();
-  if (id === 'metricas') {
-    const hoy = new Date().toISOString().slice(0,10);
-    document.getElementById('metricas-desde-input').value = hoy;
-    document.getElementById('metricas-hasta-input').value = hoy;
-    window.cargarMetricas();
-  }
-}
-
-window.renderJovenesLista = () => {
-  const wrap = document.getElementById('jovenes-lista-wrap');
-  if (!wrap) return;
-  if (jovenesCache.length === 0) { wrap.innerHTML = `<p class="presentes-empty">No hay jóvenes cargados todavía.</p>`; return; }
-  wrap.innerHTML = jovenesCache.map(j => `
-    <div class="joven-card">
-      <div class="info">
-        <strong>${j.nombre} ${j.apellido}</strong>
-        <span>${j.rama} · ${calcularEdad(j.fechaNacimiento) ?? "—"} años · nació ${j.fechaNacimiento || "—"}</span>
-      </div>
-      <div class="joven-card-acciones">
-        <button onclick='abrirFormJoven(${JSON.stringify(j).replace(/'/g,"&apos;")})'>✏️ Editar</button>
-        <button onclick="darDeBajaJoven('${j.id}')" style="color:#b01a1a">🗑️ Baja</button>
-      </div>
-    </div>`).join('');
-};
-
-window.renderCumplesProximos = () => {
-  const wrap = document.getElementById('cumples-proximos');
-  if (!wrap) return;
-  const proximos = jovenesCache
-    .map(j => ({ ...j, dias: diasHastaCumple(j.fechaNacimiento) }))
-    .filter(j => j.dias <= 30)
-    .sort((a,b) => a.dias - b.dias);
-  if (proximos.length === 0) { wrap.innerHTML = ''; return; }
-  wrap.innerHTML = `<div class="cumple-banner">🎂 Próximos cumpleaños: ${proximos.map(j => `${j.nombre} (${j.dias === 0 ? 'hoy' : 'en ' + j.dias + ' días'})`).join(' · ')}</div>`;
-};
-
-window.abrirFormJoven = (joven) => {
-  const wrap = document.getElementById('form-joven-wrap');
-  const j = joven || {};
-  wrap.innerHTML = `
-    <div class="form-joven-card">
-      <div class="form-row">
-        <input id="fj-nombre" placeholder="Nombre" value="${j.nombre||''}">
-        <input id="fj-apellido" placeholder="Apellido" value="${j.apellido||''}">
-      </div>
-      <div class="form-row">
-        <input id="fj-fecha" type="date" value="${j.fechaNacimiento||''}">
-        <select id="fj-rama">
-          ${["Castores","Manada","Scouts","Caminantes","Rovers"].map(r =>
-            `<option value="${r}" ${j.rama===r?'selected':''}>${r}</option>`).join('')}
-        </select>
-      </div>
-      <div class="form-row">
-        <input id="fj-contacto" placeholder="Contacto (tel/email tutor)" value="${j.contacto||''}">
-      </div>
-      <div class="form-row">
-        <button class="btn-presentes-accion" onclick="guardarFormJoven('${j.id||''}','${j.rama||''}')">💾 Guardar</button>
-        <button class="btn-presentes-accion" style="background:#aaa" onclick="document.getElementById('form-joven-wrap').innerHTML=''">Cancelar</button>
-      </div>
-    </div>`;
-};
-
-window.guardarFormJoven = async (id, ramaAnterior) => {
-  const datos = {
-    nombre: document.getElementById('fj-nombre').value.trim(),
-    apellido: document.getElementById('fj-apellido').value.trim(),
-    fechaNacimiento: document.getElementById('fj-fecha').value,
-    rama: document.getElementById('fj-rama').value,
-    contacto: document.getElementById('fj-contacto').value.trim()
-  };
-  if (!datos.nombre || !datos.apellido || !datos.rama) { alert('Completá nombre, apellido y rama.'); return; }
-
-  if (id && ramaAnterior && ramaAnterior !== datos.rama) {
-    await window.cambiarRamaJoven(id, ramaAnterior, datos.rama);
-    delete datos.rama;
-  }
-  await window.guardarJoven(id || null, datos);
-  document.getElementById('form-joven-wrap').innerHTML = '';
-};
-
-window.exportarJovenesCSV = () => {
-  const filas = [['Nombre','Apellido','Rama','Fecha nacimiento','Edad','Contacto']];
-  jovenesCache.forEach(j => filas.push([j.nombre, j.apellido, j.rama, j.fechaNacimiento||'', calcularEdad(j.fechaNacimiento)??'', j.contacto||'']));
-  const csv = filas.map(f => f.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
-  const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8;' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `jovenes_pringles_${new Date().toISOString().slice(0,10)}.csv`;
-  a.click();
-};
-
-let chartPresentismo = null;
-
-window.cargarMetricas = async () => {
-  const rama = document.getElementById('metricas-rama-select').value;
-  const desde = document.getElementById('metricas-desde-input').value;
-  const hasta = document.getElementById('metricas-hasta-input').value;
-  if (!desde || !hasta) return;
-
-  const datos = await window.obtenerAsistenciasRango(rama, desde, hasta);
-
-  const porFecha = {};
-  datos.forEach(d => {
-    if (!d.presente) return;
-    porFecha[d.fecha] = (porFecha[d.fecha] || 0) + 1;
-  });
-  const fechas = Object.keys(porFecha).sort();
-  const valores = fechas.map(f => porFecha[f]);
-
-  const ctx = document.getElementById('grafico-presentismo').getContext('2d');
-  if (chartPresentismo) chartPresentismo.destroy();
-  chartPresentismo = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: fechas.length ? fechas : ['Sin datos'],
-      datasets: [{
-        label: rama ? `Presentes — ${rama}` : 'Presentes — todas las ramas',
-        data: valores.length ? valores : [0],
-        backgroundColor: '#00297b'
-      }]
-    },
-    options: { responsive: true, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
-  });
-
-  const totalReuniones = fechas.length;
-  const totalPresentes = valores.reduce((a,b) => a+b, 0);
-  const promedio = totalReuniones ? (totalPresentes / totalReuniones).toFixed(1) : 0;
-  document.getElementById('metricas-resumen').innerHTML = `
-    <div class="info-card" style="margin-top:12px">
-      <h4>Resumen del período</h4>
-      <p>${totalReuniones} reunión(es) con asistencia registrada · promedio de ${promedio} presentes por reunión.</p>
-    </div>`;
-};
 </script>
 </body>
 </html>
