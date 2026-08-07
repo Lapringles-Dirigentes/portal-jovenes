@@ -164,7 +164,7 @@
 
     const av = document.getElementById("avatar-header");
     av.style.backgroundImage = ""; av.style.backgroundOrigin = ""; av.style.backgroundClip = "";
-    av.setAttribute("style", av.getAttribute("style").replace(/border:[^;]+;?/g,"") + getBordeStyle(rol, rama));
+    av.setAttribute("style", (av.getAttribute("style") || "").replace(/border:[^;]+;?/g,"") + getBordeStyle(rol, rama));
 
     const navAdmin = document.getElementById("nav-admin");
     if (navAdmin) navAdmin.style.display = userProfile.isAdmin ? "flex" : "none";
