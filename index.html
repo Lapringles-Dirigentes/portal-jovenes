@@ -399,7 +399,7 @@
             <select id="rol-select-${docId}" class="rol-select-admin">${opcionesRol(data.rama)}</select>
             ${aprobado
               ? `<span class="badge-aprobado">✅ Aprobado</span>
-                 <button class="btn-aprobar" onclick="actualizarRolSolicitud('${docId}','${data.email}')">💾 Actualizar rol</button>
+                 <button class="btn-aprobar" onclick="actualizarRolSolicitud('${docId}','${data.email}','${data.uid||''}')">💾 Actualizar rol</button>
                  <button class="btn-revocar" onclick="revocarAcceso('${docId}','${data.email}')">Revocar</button>`
               : `<button class="btn-aprobar" onclick="aprobarAcceso('${docId}','${data.email}','${data.nombre}')">✅ Aprobar</button>
                  <button class="btn-rechazar" onclick="rechazarSolicitud('${docId}')">❌ Rechazar</button>`
@@ -419,12 +419,16 @@
     alert(`✅ Acceso aprobado para ${nombre} como ${ROL_LABEL[rol]||rol}.`);
   };
 
-  window.actualizarRolSolicitud = async (docId, email) => {
+  window.actualizarRolSolicitud = async (docId, email, uid) => {
     const rol = document.getElementById('rol-select-' + docId).value;
     const emailKey = email.replace(/\./g, "_");
     await setDoc(doc(db, "autorizados", emailKey), { rol }, { merge: true });
     await updateDoc(doc(db, "solicitudes", docId), { rol });
-    alert(`✅ Rol actualizado a ${ROL_LABEL[rol]||rol}. Se aplica la próxima vez que esa persona entre.`);
+    if (uid) {
+      try { await updateDoc(doc(db, "perfiles", uid), { rol }); }
+      catch(e) { console.error("El perfil todavía no existe, se va a sincronizar en el próximo login:", e); }
+    }
+    alert(`✅ Rol actualizado a ${ROL_LABEL[rol]||rol}.`);
   };
 
   window.revocarAcceso = async (docId, email) => {
@@ -511,9 +515,13 @@
 
   // ============ DESARROLLO PERSONAL (logros tipo trofeo) ============
   window.obtenerJovenesPorRama = async (rama) => {
-    const q = query(collection(db, "perfiles"), where("rol", "==", rama), orderBy("nombre"));
-    const snap = await getDocs(q);
-    return snap.docs.map(d => ({ uid: d.id, ...d.data() }));
+    try {
+      const q = query(collection(db, "perfiles"), where("rol", "==", rama));
+      const snap = await getDocs(q);
+      const lista = snap.docs.map(d => ({ uid: d.id, ...d.data() }));
+      lista.sort((a, b) => (a.nombre || "").localeCompare(b.nombre || ""));
+      return lista;
+    } catch (e) { console.error("obtenerJovenesPorRama:", e); return []; }
   };
 
   window.guardarDesarrolloJoven = async (uid, desarrollo) => {
@@ -543,12 +551,16 @@
   };
 
   window.obtenerHistorialProgreso = async (filtros) => {
-    let condiciones = [];
-    if (filtros.rama) condiciones.push(where("rama", "==", filtros.rama));
-    if (filtros.uid)  condiciones.push(where("uid", "==", filtros.uid));
-    const q = query(collection(db, "progreso_historial"), ...condiciones, orderBy("fecha", "asc"));
-    const snap = await getDocs(q);
-    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    try {
+      let condiciones = [];
+      if (filtros.rama) condiciones.push(where("rama", "==", filtros.rama));
+      if (filtros.uid)  condiciones.push(where("uid", "==", filtros.uid));
+      const q = query(collection(db, "progreso_historial"), ...condiciones);
+      const snap = await getDocs(q);
+      const lista = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      lista.sort((a, b) => (a.fecha?.toMillis?.() || 0) - (b.fecha?.toMillis?.() || 0));
+      return lista;
+    } catch (e) { console.error("obtenerHistorialProgreso:", e); return []; }
   };
 
   // ============ ADMINISTRADORES DINÁMICOS ============
@@ -566,8 +578,12 @@
 
   // ============ MURO POR RAMA (privado) ============
   window.cargarMuroRama = (rama, cb) => {
-    const q = query(collection(db, "muro_rama"), where("rama", "==", rama), orderBy("fecha", "desc"), limit(50));
-    return onSnapshot(q, snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+    const q = query(collection(db, "muro_rama"), where("rama", "==", rama));
+    return onSnapshot(q, snap => {
+      let posts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      posts.sort((a, b) => (b.fecha?.toMillis?.() || 0) - (a.fecha?.toMillis?.() || 0));
+      cb(posts.slice(0, 50));
+    }, err => { console.error("cargarMuroRama:", err); cb([]); });
   };
 
   window.publicarPostRama = async (rama, texto) => {
@@ -978,7 +994,7 @@ body { font-family:'Nunito',sans-serif; background:var(--fondo); color:var(--tex
     <div class="tab-panel" id="tab-documentos">
       <div style="background:white;border-radius:var(--radius);padding:14px;box-shadow:var(--shadow)">
         <div style="font-family:'Playfair Display',serif;font-size:18px;font-weight:700;margin-bottom:6px;color:var(--azul)">📁 Archivos del Grupo</div>
-        <p style="font-size:12px;color:var(--text-sec);margin-bottom:12px">Documentos y recursos compartidos. Algunos requieren permiso según tu rama.</p>
+        <p style="font-size:12px;color:var(--text-sec);margin-bottom:12px">Documentos y recursos compartidos. Algunos requieren permiso según tu rama. Si la vista de abajo aparece en blanco o con error, usá el botón "Abrir en Google Drive".</p>
         <div class="drive-wrap">
           <iframe
             src="https://drive.google.com/embeddedfolderview?id=1_YiYvP46poJtj1x62z08ZH5BS87szUZS#list"
@@ -986,8 +1002,8 @@ body { font-family:'Nunito',sans-serif; background:var(--fondo); color:var(--tex
           </iframe>
         </div>
         <a href="https://drive.google.com/drive/folders/1_YiYvP46poJtj1x62z08ZH5BS87szUZS?usp=drive_link"
-          target="_blank" style="display:block;margin-top:10px;text-align:center;font-size:13px;font-weight:700;color:var(--azul)">
-          Abrir en Google Drive →
+          target="_blank" class="btn-carpeta" style="background:var(--azul);color:white;text-decoration:none;margin-top:10px">
+          📁 Abrir en Google Drive →
         </a>
       </div>
     </div>
@@ -1483,14 +1499,19 @@ window.cargarListaJovenesStaff = async (ramaFija) => {
   const lista = document.getElementById('jovenes-staff-lista');
   if (!rama) { lista.innerHTML = ''; return; }
   lista.innerHTML = `<p style="font-size:13px;color:var(--text-sec)">Cargando...</p>`;
-  const jovenes = await window.obtenerJovenesPorRama(rama);
-  if (jovenes.length === 0) { lista.innerHTML = `<p style="font-size:13px;color:var(--text-sec)">No hay jóvenes con rol ${rama} todavía.</p>`; return; }
-  lista.innerHTML = jovenes.map(j => `
-    <div class="joven-staff-card" onclick='abrirEditorDesarrollo(${JSON.stringify(j).replace(/'/g,"&apos;")})'>
-      <img src="${j.fotoPerfil || 'https://ui-avatars.com/api/?name='+encodeURIComponent(j.nombre||'U')+'&background=1a3a6b&color=fff'}" alt="">
-      <strong>${j.nombre || j.email}</strong>
-      <span style="font-size:11px;color:var(--text-sec)">✏️ Editar</span>
+  try {
+    const jovenes = await window.obtenerJovenesPorRama(rama);
+    if (jovenes.length === 0) { lista.innerHTML = `<p style="font-size:13px;color:var(--text-sec)">No hay jóvenes con rol ${rama} todavía.</p>`; return; }
+    lista.innerHTML = jovenes.map(j => `
+      <div class="joven-staff-card" onclick='abrirEditorDesarrollo(${JSON.stringify(j).replace(/'/g,"&apos;")})'>
+        <img src="${j.fotoPerfil || 'https://ui-avatars.com/api/?name='+encodeURIComponent(j.nombre||'U')+'&background=1a3a6b&color=fff'}" alt="">
+        <strong>${j.nombre || j.email}</strong>
+        <span style="font-size:11px;color:var(--text-sec)">✏️ Editar</span>
     </div>`).join('');
+  } catch (e) {
+    console.error("cargarListaJovenesStaff:", e);
+    lista.innerHTML = `<p style="color:var(--rojo);font-size:13px">Error al cargar los jóvenes. Revisá la consola (F12).</p>`;
+  }
 };
 
 let editorDesarrolloActual = null;
@@ -1721,6 +1742,11 @@ window.cargarDashboard = async () => {
 
   const ctx = document.getElementById('dash-chart').getContext('2d');
   if (dashChart) dashChart.destroy();
+
+  if (datos.length === 0) {
+    document.getElementById('dash-resumen').innerHTML = `<p style="font-size:12px;color:var(--text-sec)">Todavía no hay datos de progreso guardados con estos filtros. Se van a ir generando a medida que los dirigentes guarden cambios en "Jóvenes".</p>`;
+    return;
+  }
 
   if (uid && etapa) {
     // Serie en el tiempo para una persona + una etapa puntual
