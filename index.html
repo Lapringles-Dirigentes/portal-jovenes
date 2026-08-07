@@ -7,6 +7,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
@@ -840,6 +841,10 @@ body { font-family:'Nunito',sans-serif; background:var(--fondo); color:var(--tex
 .rol-fijo-display { background:var(--fondo); border-radius:8px; padding:12px 14px; font-size:14px; font-weight:700; color:var(--azul); }
 
 /* ---- LOGROS TIPO TROFEO (PlayStation style) ---- */
+.rama-solapas { display:flex; gap:6px; overflow-x:auto; padding-bottom:6px; margin-bottom:10px; -ms-overflow-style:none; scrollbar-width:none; }
+.rama-solapas::-webkit-scrollbar { display:none; }
+.rama-solapa-btn { flex-shrink:0; padding:8px 14px; border-radius:20px; background:white; border:1.5px solid #ccc; font-size:12px; font-weight:700; font-family:'Nunito',sans-serif; cursor:pointer; white-space:nowrap; }
+.rama-solapa-btn.bloqueada { background:#eee; color:#aaa; border-color:#ddd; cursor:not-allowed; }
 .trofeo-seccion-titulo { font-size:12px; font-weight:800; color:var(--text-sec); text-transform:uppercase; letter-spacing:0.06em; margin:18px 0 8px; }
 .trofeo-card {
   display:flex; align-items:center; gap:12px; background:linear-gradient(135deg,#1a1f2e,#252b3d);
@@ -1286,18 +1291,52 @@ function renderDesarrollo() {
   const wrap = document.getElementById('desarrollo-lista');
   if (!up || !wrap) return;
   const rol = up.rol || '';
-  const ROLES_RAMA = window._ROLES_RAMA, ETAPAS_POR_RAMA = window._ETAPAS_POR_RAMA,
-        ETAPA_ICONOS = window._ETAPA_ICONOS, RAMA_LOGO_GRUPO = window._RAMA_LOGO_GRUPO;
-  if (!ROLES_RAMA.includes(rol)) { wrap.innerHTML = `<p style="font-size:13px;color:var(--text-sec)">Esta sección es para jóvenes de una rama.</p>`; return; }
+  const ROLES_RAMA = window._ROLES_RAMA;
+  if (!ROLES_RAMA.includes(rol) && !(up.desarrollo && Object.keys(up.desarrollo.porRama||{}).length)) {
+    wrap.innerHTML = `<p style="font-size:13px;color:var(--text-sec)">Esta sección es para jóvenes de una rama.</p>`; return;
+  }
 
   const porRama = (up.desarrollo && up.desarrollo.porRama) || {};
-  const desarrollo = porRama[rol] || { promesa:0, etapas:{}, especialidades:[] };
-  const etapas = ETAPAS_POR_RAMA[rol] || [];
+  const ramasVisitadas = new Set(Object.keys(porRama));
+  if (rol) ramasVisitadas.add(rol);
+
+  window._desarrolloRamaActiva = window._desarrolloRamaActiva && ramasVisitadas.has(window._desarrolloRamaActiva)
+    ? window._desarrolloRamaActiva : (rol || Array.from(ramasVisitadas)[0]);
+
+  let tabsHtml = `<div class="rama-solapas">`;
+  ROLES_RAMA.forEach(r => {
+    const visitada = ramasVisitadas.has(r);
+    const activa = r === window._desarrolloRamaActiva;
+    const color = window._RAMA_COLORES[r];
+    tabsHtml += `<button class="rama-solapa-btn ${activa?'activa':''} ${!visitada?'bloqueada':''}"
+      style="${activa ? `background:${color};color:white;border-color:${color}` : (visitada ? `color:${color};border-color:${color}` : '')}"
+      ${visitada ? `onclick="cambiarSolapaDesarrollo('${r}')"` : 'disabled title="Todavía no estuviste en esta rama"'}>
+      ${visitada ? '' : '🔒 '}${window._ROL_LABEL[r]||r}
+    </button>`;
+  });
+  tabsHtml += `</div>`;
+
+  wrap.innerHTML = tabsHtml + `<div id="desarrollo-contenido"></div>`;
+  renderDesarrolloContenido(up, window._desarrolloRamaActiva);
+}
+
+window.cambiarSolapaDesarrollo = (r) => {
+  window._desarrolloRamaActiva = r;
+  renderDesarrollo();
+};
+
+function renderDesarrolloContenido(up, ramaSel) {
+  const cont = document.getElementById('desarrollo-contenido');
+  if (!cont) return;
+  const ETAPAS_POR_RAMA = window._ETAPAS_POR_RAMA, ETAPA_ICONOS = window._ETAPA_ICONOS, RAMA_LOGO_GRUPO = window._RAMA_LOGO_GRUPO;
+  const porRama = (up.desarrollo && up.desarrollo.porRama) || {};
+  const desarrollo = porRama[ramaSel] || { promesa:0, etapas:{}, especialidades:[] };
+  const etapas = ETAPAS_POR_RAMA[ramaSel] || [];
 
   let html = `<div class="trofeo-seccion-titulo">Promesa</div>`;
-  html += trofeoCardHtml('Promesa', RAMA_LOGO_GRUPO[rol], desarrollo.promesa || 0);
+  html += trofeoCardHtml('Promesa', RAMA_LOGO_GRUPO[ramaSel], desarrollo.promesa || 0);
 
-  html += `<div class="trofeo-seccion-titulo">Etapas de ${rol}</div>`;
+  html += `<div class="trofeo-seccion-titulo">Etapas de ${ramaSel}</div>`;
   etapas.forEach(et => {
     html += trofeoCardHtml(et, ETAPA_ICONOS[et], (desarrollo.etapas && desarrollo.etapas[et]) || 0);
   });
@@ -1305,21 +1344,21 @@ function renderDesarrollo() {
   html += `<div class="trofeo-seccion-titulo">Especialidades</div>`;
   const especialidades = desarrollo.especialidades || [];
   if (especialidades.length === 0) {
-    html += `<p style="font-size:12px;color:var(--text-sec)">Todavía no tenés especialidades cargadas.</p>`;
+    html += `<p style="font-size:12px;color:var(--text-sec)">Todavía no hay especialidades cargadas.</p>`;
   } else {
-    especialidades.forEach(e => { html += trofeoCardHtml(e.nombre, RAMA_LOGO_GRUPO[rol], e.pct || 0); });
+    especialidades.forEach(e => { html += trofeoCardHtml(e.nombre, RAMA_LOGO_GRUPO[ramaSel], e.pct || 0); });
   }
 
-  const notasPublicas = (up.desarrollo.notas || []).filter(n => n.tipo === 'publica' && n.rama === rol);
-  html += `<div class="trofeo-seccion-titulo">Notas de tu dirigente</div>`;
+  const notasPublicas = (up.desarrollo.notas || []).filter(n => n.tipo === 'publica' && n.rama === ramaSel);
+  html += `<div class="trofeo-seccion-titulo">Notas de tu dirigente en ${ramaSel}</div>`;
   if (notasPublicas.length === 0) {
-    html += `<p style="font-size:12px;color:var(--text-sec)">Todavía no tenés notas.</p>`;
+    html += `<p style="font-size:12px;color:var(--text-sec)">Todavía no hay notas para esta rama.</p>`;
   } else {
-    notasPublicas.slice().reverse().forEach(n => {
-      html += `<div class="info-card" style="margin-bottom:8px"><p style="font-size:13px">${escapeHtmlLocal(n.texto)}</p><p style="font-size:10px;color:var(--text-sec);margin-top:6px">— ${escapeHtmlLocal(n.autor||'')}</p></div>`;
+    notasPublicas.slice().sort((a,b)=>(a.fecha||0)-(b.fecha||0)).reverse().forEach(n => {
+      html += `<div class="info-card" style="margin-bottom:8px"><p style="font-size:13px">${escapeHtmlLocal(n.texto)}</p><p style="font-size:10px;color:var(--text-sec);margin-top:6px">— ${escapeHtmlLocal(n.autor||'')} · ${n.fecha ? new Date(n.fecha).toLocaleDateString('es-AR') : ''}</p></div>`;
     });
   }
-  wrap.innerHTML = html;
+  cont.innerHTML = html;
 }
 
 function trofeoCardHtml(nombre, icono, pct) {
@@ -1536,8 +1575,13 @@ function renderEditorDesarrollo() {
   const color = window._RAMA_COLORES[rol] || '#1a3a6b';
 
   let html = `<div class="editor-desarrollo-card">
-    <div style="font-weight:800;font-size:15px;margin-bottom:4px;color:var(--azul)">✏️ Editando: ${j.nombre}</div>
-    <div style="font-size:12px;color:var(--text-sec);margin-bottom:14px">Rama actual: <b style="color:${color}">${rol}</b></div>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+      <div>
+        <div style="font-weight:800;font-size:15px;margin-bottom:4px;color:var(--azul)">✏️ Editando: ${j.nombre}</div>
+        <div style="font-size:12px;color:var(--text-sec);margin-bottom:14px">Rama actual: <b style="color:${color}">${rol}</b></div>
+      </div>
+      <button class="btn-carpeta" style="background:var(--azul-cl);color:var(--azul);width:auto;padding:8px 12px;font-size:11px;flex-shrink:0" onclick="descargarHistorialPDF()">📄 Descargar historial PDF</button>
+    </div>
 
     <div class="editor-etapa-row">
       <img src="${window._RAMA_LOGO_GRUPO[rol]}" alt="Promesa">
@@ -1610,13 +1654,31 @@ function renderHistorialRamasAnteriores(j, rolActual) {
 }
 
 function renderNotasList(j, rol) {
-  const notas = (j.desarrollo.notas || []).filter(n => n.rama === rol);
-  if (notas.length === 0) return `<p style="font-size:12px;color:var(--text-sec)">Todavía no hay notas para esta rama.</p>`;
-  return notas.slice().reverse().map((n,idx) => `
-    <div class="info-card" style="margin-bottom:8px;border-left:4px solid ${n.tipo==='publica' ? '#2e7d32' : '#b01a1a'}">
-      <p style="font-size:12.5px">${escapeHtmlLocal(n.texto)}</p>
-      <p style="font-size:10px;color:var(--text-sec);margin-top:6px">${n.tipo==='publica' ? '👁️ Pública' : '🔒 Interna'} — ${escapeHtmlLocal(n.autor||'')} · ${n.fecha ? new Date(n.fecha).toLocaleDateString('es-AR') : ''}</p>
-    </div>`).join('');
+  const up = window._userProfile ? window._userProfile() : null;
+  const cu = window._currentUser ? window._currentUser() : null;
+  const todas = j.desarrollo.notas || [];
+  if (todas.length === 0) return `<p style="font-size:12px;color:var(--text-sec)">Todavía no hay notas.</p>`;
+  // Mostramos TODAS las notas (de todas las ramas por las que pasó), no solo la actual —
+  // así cualquier dirigente que reciba al joven ve el historial interno completo.
+  return todas.map((n, i) => ({ n, i })).sort((a,b) => (b.n.fecha||0) - (a.n.fecha||0)).map(({n, i}) => {
+    const puedeEditar = cu && ((n.autorUid && n.autorUid === cu.uid) || (up && up.isAdmin));
+    const colorRama = window._RAMA_COLORES[n.rama] || '#1a3a6b';
+    return `<div class="info-card" style="margin-bottom:8px;border-left:4px solid ${n.tipo==='publica' ? '#2e7d32' : '#b01a1a'}" id="nota-card-${i}">
+      <div id="nota-vista-${i}">
+        <p style="font-size:12.5px">${escapeHtmlLocal(n.texto)}</p>
+        <p style="font-size:10px;color:var(--text-sec);margin-top:6px">
+          ${n.tipo==='publica' ? '👁️ Pública' : '🔒 Interna'} ·
+          <span style="color:${colorRama};font-weight:700">${n.rama||''}</span> ·
+          ${escapeHtmlLocal(n.autor||'')} · ${n.fecha ? new Date(n.fecha).toLocaleDateString('es-AR') : ''}
+        </p>
+        ${puedeEditar ? `
+          <div style="margin-top:6px;display:flex;gap:10px">
+            <button onclick="editarNotaExistente(${i})" style="background:none;border:none;color:var(--azul);font-size:11px;font-weight:700;cursor:pointer">✏️ Editar</button>
+            <button onclick="borrarNotaExistente(${i})" style="background:none;border:none;color:var(--rojo);font-size:11px;font-weight:700;cursor:pointer">🗑️ Eliminar</button>
+          </div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
 }
 
 window.actualizarEditorEtapa = (clave, valor) => {
@@ -1654,10 +1716,31 @@ window.agregarNota = () => {
   if (!texto) { alert('Escribí algo primero.'); return; }
   const tipo = document.querySelector('input[name="nota-tipo"]:checked').value;
   const up = window._userProfile ? window._userProfile() : null;
+  const cu = window._currentUser ? window._currentUser() : null;
   editorDesarrolloActual.desarrollo.notas.push({
     texto, tipo, rama: editorDesarrolloActual.rol,
-    autor: up ? up.nombre : '', fecha: Date.now()
+    autor: up ? up.nombre : '', autorUid: cu ? cu.uid : '', autorEmail: cu ? cu.email : '',
+    fecha: Date.now()
   });
+  document.getElementById('nota-nueva-texto').value = '';
+  renderEditorDesarrollo();
+};
+
+window.editarNotaExistente = async (i) => {
+  const nota = editorDesarrolloActual.desarrollo.notas[i];
+  const nuevoTexto = prompt('Editar nota:', nota.texto);
+  if (nuevoTexto === null) return;
+  if (!nuevoTexto.trim()) { alert('La nota no puede quedar vacía.'); return; }
+  nota.texto = nuevoTexto.trim();
+  nota.editado = true;
+  await window.guardarDesarrolloJoven(editorDesarrolloActual.uid, editorDesarrolloActual.desarrollo);
+  renderEditorDesarrollo();
+};
+
+window.borrarNotaExistente = async (i) => {
+  if (!confirm('¿Eliminar esta nota? No se puede deshacer.')) return;
+  editorDesarrolloActual.desarrollo.notas.splice(i, 1);
+  await window.guardarDesarrolloJoven(editorDesarrolloActual.uid, editorDesarrolloActual.desarrollo);
   renderEditorDesarrollo();
 };
 
@@ -1797,6 +1880,89 @@ window.cargarDashboard = async () => {
     });
     document.getElementById('dash-resumen').innerHTML = `<p style="font-size:12px;color:var(--text-sec)">${etapa ? `Último valor de "${etapa}"` : 'Último valor cargado'} por persona, coloreado según su rama.</p>`;
   }
+};
+
+// ===================== EXPORTAR HISTORIAL A PDF =====================
+async function imgUrlADataUrl(url) {
+  try {
+    const resp = await fetch(url);
+    const blob = await resp.blob();
+    return await new Promise((res, rej) => {
+      const reader = new FileReader();
+      reader.onload = () => res(reader.result);
+      reader.onerror = rej;
+      reader.readAsDataURL(blob);
+    });
+  } catch (e) { console.error('No se pudo cargar imagen para el PDF:', url, e); return null; }
+}
+
+window.descargarHistorialPDF = async () => {
+  const j = editorDesarrolloActual;
+  if (!j) return;
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
+  const pageW = pdf.internal.pageSize.getWidth();
+  let y = 50;
+
+  const logoData = await imgUrlADataUrl('LogoPringles.png').catch(() => null);
+  if (logoData) { try { pdf.addImage(logoData, 'PNG', 40, 30, 40, 40); } catch(e){} }
+  pdf.setFont('helvetica', 'bold'); pdf.setFontSize(18);
+  pdf.text('Historial Scout — ' + (j.nombre || ''), pageW/2, 55, { align: 'center' });
+  pdf.setFont('helvetica', 'normal'); pdf.setFontSize(10); pdf.setTextColor(100);
+  pdf.text('Grupo Scout Cnel. Juan Pascual Pringles · Generado el ' + new Date().toLocaleDateString('es-AR'), pageW/2, 72, { align: 'center' });
+  pdf.setTextColor(0);
+  y = 100;
+
+  function saltoDePaginaSiHaceFalta(alturaNecesaria) {
+    if (y + alturaNecesaria > 780) { pdf.addPage(); y = 50; }
+  }
+
+  const porRama = j.desarrollo.porRama || {};
+  const ramasOrdenadas = Object.keys(porRama);
+
+  for (const rama of ramasOrdenadas) {
+    const dr = porRama[rama];
+    const etapas = window._ETAPAS_POR_RAMA[rama] || [];
+    saltoDePaginaSiHaceFalta(90);
+
+    const logoRama = await imgUrlADataUrl(window._RAMA_LOGO_GRUPO[rama]).catch(() => null);
+    if (logoRama) { try { pdf.addImage(logoRama, 'JPEG', 40, y, 30, 30); } catch(e){} }
+    pdf.setFont('helvetica', 'bold'); pdf.setFontSize(14);
+    pdf.text(rama + (rama === j.rol ? '  (rama actual)' : ''), 80, y + 12);
+    pdf.setFont('helvetica', 'normal'); pdf.setFontSize(10);
+    y += 40;
+
+    pdf.text('Promesa: ' + (dr.promesa||0) + '%', 50, y); y += 16;
+    etapas.forEach(et => { pdf.text(et + ': ' + ((dr.etapas && dr.etapas[et]) || 0) + '%', 50, y); y += 16; });
+    if ((dr.especialidades||[]).length) {
+      pdf.text('Especialidades: ' + dr.especialidades.map(e => e.nombre + ' (' + e.pct + '%)').join(', '), 50, y, { maxWidth: pageW - 100 }); y += 20;
+    }
+    y += 10;
+    pdf.setDrawColor(220); pdf.line(40, y, pageW - 40, y); y += 20;
+  }
+
+  saltoDePaginaSiHaceFalta(40);
+  pdf.setFont('helvetica', 'bold'); pdf.setFontSize(14);
+  pdf.text('Notas de dirigentes (públicas e internas)', 50, y); y += 22;
+  pdf.setFont('helvetica', 'normal'); pdf.setFontSize(10);
+
+  const notas = (j.desarrollo.notas || []).slice().sort((a,b) => (a.fecha||0) - (b.fecha||0));
+  if (notas.length === 0) {
+    pdf.text('No hay notas cargadas.', 50, y); y += 16;
+  }
+  notas.forEach(n => {
+    saltoDePaginaSiHaceFalta(50);
+    const fecha = n.fecha ? new Date(n.fecha).toLocaleDateString('es-AR') : '';
+    pdf.setFont('helvetica', 'bold');
+    pdf.text(`[${n.tipo === 'publica' ? 'Pública' : 'Interna'}] ${n.rama || ''} — ${n.autor || ''} — ${fecha}`, 50, y);
+    y += 14;
+    pdf.setFont('helvetica', 'normal');
+    const lineas = pdf.splitTextToSize(n.texto || '', pageW - 100);
+    pdf.text(lineas, 50, y);
+    y += lineas.length * 13 + 12;
+  });
+
+  pdf.save(`Historial-${(j.nombre||'joven').replace(/\s+/g,'-')}.pdf`);
 };
 
 function detectarAndroid() {
