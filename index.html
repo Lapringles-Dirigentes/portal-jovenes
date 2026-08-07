@@ -6,6 +6,7 @@
 <title>La Pringles — Portal Jóvenes</title>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
@@ -61,7 +62,10 @@
   };
 
   const RAMA_LOGO_GRUPO = { Castores:"rama-castores.jpg", Manada:"rama-manada.jpg", Scouts:"rama-tropa.jpg", Caminantes:"rama-caminantes.jpg", Rovers:"rama-rovers.jpg" };
+  const RAMA_SEDE_NOMBRE = { Castores:"Madriguera", Manada:"Cubil", Scouts:"Unidad", Caminantes:"Base", Rovers:"Cueva" };
+  const RAMA_SEDE_ICONO  = { Castores:"🦫", Manada:"🐺", Scouts:"⚜️", Caminantes:"🥾", Rovers:"⚓" };
 
+  window._RAMA_SEDE_NOMBRE = RAMA_SEDE_NOMBRE; window._RAMA_SEDE_ICONO = RAMA_SEDE_ICONO;
   window._ROLES_RAMA = ROLES_RAMA; window._ROLES_STAFF = ROLES_STAFF; window._ROL_LABEL = ROL_LABEL;
   window._ETAPAS_POR_RAMA = ETAPAS_POR_RAMA; window._ETAPA_ICONOS = ETAPA_ICONOS; window._RAMA_LOGO_GRUPO = RAMA_LOGO_GRUPO;
 
@@ -87,9 +91,13 @@
     if (!user) { showPantalla("pantalla-login"); return; }
     currentUser = user;
 
-    const isAdmin  = ADMIN_EMAILS.includes(user.email);
+    let isAdmin = ADMIN_EMAILS.includes(user.email);
     const emailKey = user.email.replace(/\./g, "_");
     const authSnap = await getDoc(doc(db, "autorizados", emailKey));
+    if (!isAdmin) {
+      const adminDinamicoSnap = await getDoc(doc(db, "administradores_portal", user.email));
+      isAdmin = adminDinamicoSnap.exists();
+    }
 
     if (!isAdmin && !authSnap.exists()) {
       showPantalla("pantalla-solicitud");
@@ -105,7 +113,7 @@
         nombre: user.displayName || "", email: user.email,
         rama: "", fotoPerfil: user.photoURL || "",
         rol: authSnap.exists() ? (authSnap.data().rol || "") : "",
-        ramaAsignada: "", desarrollo: { promesa: 0, etapas: {}, especialidades: [] },
+        ramaAsignada: "", desarrollo: { porRama: {}, notas: [] },
         edad: "", isAdmin, creadoEn: serverTimestamp()
       });
     }
@@ -117,7 +125,20 @@
       await updateDoc(profileRef, { rol: authSnap.data().rol });
       userProfile.rol = authSnap.data().rol;
     }
-    if (!userProfile.desarrollo) userProfile.desarrollo = { promesa: 0, etapas: {}, especialidades: [] };
+    // Migración: si tenía la estructura vieja (plana), la movemos a porRama[rol]
+    if (!userProfile.desarrollo) userProfile.desarrollo = { porRama: {}, notas: [] };
+    if (!userProfile.desarrollo.porRama) userProfile.desarrollo.porRama = {};
+    if (!userProfile.desarrollo.notas) userProfile.desarrollo.notas = [];
+    if (userProfile.desarrollo.etapas || userProfile.desarrollo.promesa) {
+      const rolViejo = userProfile.rol;
+      if (rolViejo && !userProfile.desarrollo.porRama[rolViejo]) {
+        userProfile.desarrollo.porRama[rolViejo] = {
+          promesa: userProfile.desarrollo.promesa || 0,
+          etapas: userProfile.desarrollo.etapas || {},
+          especialidades: userProfile.desarrollo.especialidades || []
+        };
+      }
+    }
 
     window._currentUser  = () => currentUser;
     window._userProfile  = () => userProfile;
@@ -141,7 +162,8 @@
     return "border:3px solid #ccc;";
   }
 
-  function getSubnombre(rol, ramaAsignada) {
+  function getSubnombre(rol, ramaAsignada, isAdminFlag) {
+    if (isAdminFlag) return "Administrador General" + (esStaff(rol) || ROLES_RAMA.includes(rol) ? " · " + (ROL_LABEL[rol]||rol) : "");
     if (esStaff(rol)) return rol + (ramaAsignada ? " · " + (ROL_LABEL[ramaAsignada]||ramaAsignada) : "");
     if (rol && ROLES_RAMA.includes(rol)) return ROL_LABEL[rol] || rol;
     return "Sin rol asignado";
@@ -160,7 +182,7 @@
     document.getElementById("nombre-header").textContent = nombreDisplay;
     const rol   = userProfile.rol   || "";
     const rama  = esStaff(rol) ? (userProfile.ramaAsignada || "") : rol;
-    document.getElementById("subnombre-header").textContent = getSubnombre(rol, userProfile.ramaAsignada);
+    document.getElementById("subnombre-header").textContent = getSubnombre(rol, userProfile.ramaAsignada, userProfile.isAdmin);
 
     const av = document.getElementById("avatar-header");
     av.style.backgroundImage = ""; av.style.backgroundOrigin = ""; av.style.backgroundClip = "";
@@ -172,16 +194,15 @@
     const navDesarrollo = document.getElementById("nav-desarrollo");
     if (navDesarrollo) navDesarrollo.style.display = (rol && ROLES_RAMA.includes(rol)) ? "flex" : "none";
 
-    const navMiRama = document.getElementById("nav-mi-rama");
-    if (navMiRama) navMiRama.style.display = rol ? "flex" : "none";
-
     const navJovenes = document.getElementById("nav-jovenes");
     if (navJovenes) navJovenes.style.display = (userProfile.isAdmin || esStaff(rol)) ? "flex" : "none";
 
+    const navDashboard = document.getElementById("nav-dashboard");
+    if (navDashboard) navDashboard.style.display = (userProfile.isAdmin || esStaff(rol)) ? "flex" : "none";
+
     window._esStaff = esStaff(rol);
 
-    cargarMuro();
-    showTab("playon");
+    showTab("mi-rama");
     detectarAndroid();
   }
 
@@ -419,6 +440,39 @@
     await deleteDoc(doc(db, "solicitudes", docId));
   };
 
+  window.otorgarAdminPortalUI = async () => {
+    const email = document.getElementById("admin-nuevo-email").value.trim().toLowerCase();
+    if (!email || !email.includes("@")) { alert("Ingresá un email válido."); return; }
+    if (ADMIN_EMAILS.includes(email)) { alert("Ese mail ya es admin de arranque, no hace falta agregarlo."); return; }
+    if (!confirm(`¿Dar permisos de administrador general a ${email}?`)) return;
+    await window.otorgarAdminPortal(email);
+    document.getElementById("admin-nuevo-email").value = "";
+    alert("✅ Listo. Va a tener acceso admin la próxima vez que entre.");
+  };
+
+  window.cargarAdminsDinamicos = () => {
+    window.cargarAdminsDinamicosLista(admins => {
+      const wrap = document.getElementById("admin-lista-dinamicos");
+      if (!wrap) return;
+      const todos = [
+        ...ADMIN_EMAILS.map(e => ({ email: e, fijo: true })),
+        ...admins.filter(a => !ADMIN_EMAILS.includes(a.email))
+      ];
+      wrap.innerHTML = todos.map(a => `
+        <div class="perm-user-row" style="padding:10px 0;border-bottom:1px solid var(--fondo)">
+          <div class="perm-user-info"><span style="font-size:13px;font-weight:600">${a.email}</span></div>
+          ${a.fijo
+            ? `<span class="perm-locked">Fijo</span>`
+            : `<button class="btn-revocar" onclick="revocarAdminPortalUI('${a.email}')">Quitar admin</button>`}
+        </div>`).join('');
+    });
+  };
+
+  window.revocarAdminPortalUI = async (email) => {
+    if (!confirm(`¿Quitar el acceso admin de ${email}?`)) return;
+    await window.revocarAdminPortal(email);
+  };
+
   window.guardarPerfil = async () => {
     const nombre = document.getElementById("perfil-nombre").value.trim();
     const edad   = document.getElementById("perfil-edad").value.trim();
@@ -466,6 +520,50 @@
     await updateDoc(doc(db, "perfiles", uid), { desarrollo });
   };
 
+  window.cambiarRolJoven = async (uid, nuevaRama) => {
+    await updateDoc(doc(db, "perfiles", uid), { rol: nuevaRama });
+  };
+
+  // ============ HISTORIAL DE PROGRESO (para el dashboard) ============
+  window.registrarProgresoHistorial = async (joven) => {
+    const rol = joven.rol;
+    const d = joven.desarrollo.porRama[rol];
+    if (!d) return;
+    const entradas = [];
+    entradas.push({ tipo: "Promesa", pct: d.promesa || 0 });
+    (ETAPAS_POR_RAMA[rol] || []).forEach(et => entradas.push({ tipo: et, pct: (d.etapas && d.etapas[et]) || 0 }));
+    (d.especialidades || []).forEach(e => entradas.push({ tipo: e.nombre, pct: e.pct || 0 }));
+    for (const en of entradas) {
+      await addDoc(collection(db, "progreso_historial"), {
+        uid: joven.uid, nombre: joven.nombre, rama: rol,
+        etapa: en.tipo, pct: en.pct,
+        autor: userProfile.nombre || "", fecha: serverTimestamp()
+      });
+    }
+  };
+
+  window.obtenerHistorialProgreso = async (filtros) => {
+    let condiciones = [];
+    if (filtros.rama) condiciones.push(where("rama", "==", filtros.rama));
+    if (filtros.uid)  condiciones.push(where("uid", "==", filtros.uid));
+    const q = query(collection(db, "progreso_historial"), ...condiciones, orderBy("fecha", "asc"));
+    const snap = await getDocs(q);
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  };
+
+  // ============ ADMINISTRADORES DINÁMICOS ============
+  window.otorgarAdminPortal = async (email) => {
+    await setDoc(doc(db, "administradores_portal", email), {
+      email, otorgadoPor: currentUser.email, otorgadoEn: serverTimestamp()
+    });
+  };
+  window.revocarAdminPortal = async (email) => {
+    await deleteDoc(doc(db, "administradores_portal", email));
+  };
+  window.cargarAdminsDinamicosLista = (cb) => {
+    return onSnapshot(collection(db, "administradores_portal"), snap => cb(snap.docs.map(d => ({ email: d.id, ...d.data() }))));
+  };
+
   // ============ MURO POR RAMA (privado) ============
   window.cargarMuroRama = (rama, cb) => {
     const q = query(collection(db, "muro_rama"), where("rama", "==", rama), orderBy("fecha", "desc"), limit(50));
@@ -477,12 +575,12 @@
     if (texto.length > 150) { alert("Máximo 150 caracteres."); return; }
     const rol = userProfile.rol || "";
     const esD = esStaff(rol);
-    const color = esD ? "dirigente" : (RAMA_COLORES[rol] || "#1a3a6b");
+    const color = (esD || userProfile.isAdmin) ? "dirigente" : (RAMA_COLORES[rol] || "#1a3a6b");
     await addDoc(collection(db, "muro_rama"), {
       texto, rama,
       nombre: userProfile.nombre || currentUser.displayName || currentUser.email,
       foto: userProfile.fotoPerfil || "",
-      subnombre: getSubnombre(rol, userProfile.ramaAsignada),
+      subnombre: getSubnombre(rol, userProfile.ramaAsignada, userProfile.isAdmin),
       ramaColor: color,
       uid: currentUser.uid,
       fecha: serverTimestamp()
@@ -859,48 +957,6 @@ body { font-family:'Nunito',sans-serif; background:var(--fondo); color:var(--tex
     </div>
 
     <!-- EL PLAYÓN -->
-    <div class="tab-panel" id="tab-playon">
-      <div style="font-family:'Playfair Display',serif;font-size:20px;font-weight:700;margin-bottom:14px;color:var(--azul)">🏟️ El Playón de la Pringles</div>
-      <div class="muro-composer">
-        <div class="muro-composer-header">
-          <img class="composer-avatar" id="composer-avatar" src="" alt="">
-          <span>¿Qué está pasando en La Pringles?</span>
-        </div>
-        <textarea id="muro-input" placeholder="Contá algo... (máx. 150 caracteres)" oninput="contarChars()" maxlength="150"></textarea>
-        <div class="muro-composer-footer">
-          <span class="muro-contador" id="muro-contador">0/150</span>
-          <button class="btn-emoji" onclick="toggleEmoji()">😊</button>
-          <button class="btn-publicar" onclick="publicarPost()">Publicar</button>
-        </div>
-        <div class="emoji-picker" id="emoji-picker">
-          <button class="emoji-btn" onclick="addEmoji('😀')">😀</button>
-          <button class="emoji-btn" onclick="addEmoji('😂')">😂</button>
-          <button class="emoji-btn" onclick="addEmoji('❤️')">❤️</button>
-          <button class="emoji-btn" onclick="addEmoji('👏')">👏</button>
-          <button class="emoji-btn" onclick="addEmoji('🔥')">🔥</button>
-          <button class="emoji-btn" onclick="addEmoji('⚜️')">⚜️</button>
-          <button class="emoji-btn" onclick="addEmoji('🏕️')">🏕️</button>
-          <button class="emoji-btn" onclick="addEmoji('🌲')">🌲</button>
-          <button class="emoji-btn" onclick="addEmoji('⭐')">⭐</button>
-          <button class="emoji-btn" onclick="addEmoji('🎉')">🎉</button>
-          <button class="emoji-btn" onclick="addEmoji('💪')">💪</button>
-          <button class="emoji-btn" onclick="addEmoji('🫂')">🫂</button>
-          <button class="emoji-btn" onclick="addEmoji('🦫')">🦫</button>
-          <button class="emoji-btn" onclick="addEmoji('🐺')">🐺</button>
-          <button class="emoji-btn" onclick="addEmoji('🦅')">🦅</button>
-          <button class="emoji-btn" onclick="addEmoji('⚓')">⚓</button>
-        </div>
-      </div>
-      <div id="muro-lista"></div>
-    </div>
-
-    <!-- RAMAS -->
-    <div class="tab-panel" id="tab-ramas">
-      <div style="font-family:'Playfair Display',serif;font-size:20px;font-weight:700;margin-bottom:14px;color:var(--azul)">⚜️ Nuestras Ramas</div>
-      <div id="ramas-lista" class="ramas-grid"></div>
-      <div id="rama-detalle-wrap"></div>
-    </div>
-
     <!-- CALENDARIO -->
     <div class="tab-panel" id="tab-calendario">
       <div style="background:white;border-radius:var(--radius);padding:14px;box-shadow:var(--shadow)">
@@ -992,10 +1048,11 @@ body { font-family:'Nunito',sans-serif; background:var(--fondo); color:var(--tex
       <div id="desarrollo-lista"></div>
     </div>
 
-    <!-- MI RAMA (muro privado) -->
+    <!-- MI RAMA (sede + muro privado) -->
     <div class="tab-panel" id="tab-mi-rama">
-      <div style="font-family:'Playfair Display',serif;font-size:20px;font-weight:700;margin-bottom:14px;color:var(--azul)">💬 Muro de mi Rama</div>
+      <div id="mi-rama-header"></div>
       <div id="mi-rama-selector-wrap"></div>
+      <div id="mi-rama-info-card"></div>
       <div class="muro-composer">
         <div class="muro-composer-header">
           <img class="composer-avatar" id="composer-avatar-rama" src="" alt="">
@@ -1018,6 +1075,15 @@ body { font-family:'Nunito',sans-serif; background:var(--fondo); color:var(--tex
       <div id="jovenes-staff-editor-wrap"></div>
     </div>
 
+    <!-- DASHBOARD DE CRECIMIENTO -->
+    <div class="tab-panel" id="tab-dashboard">
+      <div style="font-family:'Playfair Display',serif;font-size:20px;font-weight:700;margin-bottom:4px;color:var(--azul)">📈 Dashboard de Crecimiento</div>
+      <p style="font-size:12px;color:var(--text-sec);margin-bottom:14px">Progresión de logros en el tiempo. Filtrá por rama, persona y etapa.</p>
+      <div id="dash-filtros" class="rama-selector-bar"></div>
+      <div class="info-card"><canvas id="dash-chart" height="220"></canvas></div>
+      <div id="dash-resumen"></div>
+    </div>
+
     <!-- ADMIN -->
     <div class="tab-panel" id="tab-admin">
       <div class="admin-section-title">🛡️ Panel de Administración</div>
@@ -1025,16 +1091,22 @@ body { font-family:'Nunito',sans-serif; background:var(--fondo); color:var(--tex
       <div id="admin-solicitudes-lista">
         <div class="admin-empty">Cargando solicitudes...</div>
       </div>
+      <div class="admin-section-title" style="margin-top:26px;font-size:17px">🔑 Administradores</div>
+      <p class="admin-subtitle">Otorgá o quitá permisos de administrador general a otras cuentas (ej: jefe de grupo).</p>
+      <div class="solicitud-admin-card" style="display:block">
+        <div class="form-group" style="margin-bottom:8px"><label>Email de la cuenta</label><input type="email" id="admin-nuevo-email" placeholder="jefe@gmail.com"></div>
+        <button class="btn-aprobar" onclick="otorgarAdminPortalUI()">➕ Hacer administrador</button>
+      </div>
+      <div id="admin-lista-dinamicos"></div>
     </div>
 
   </div>
 
   <nav class="nav-bottom">
-    <button class="nav-item active" onclick="showTab('playon',this)"><span class="nav-icon">🏟️</span>El Playón</button>
-    <button class="nav-item" onclick="showTab('ramas',this)"><span class="nav-icon">⚜️</span>Ramas</button>
+    <button class="nav-item active" id="nav-mi-rama" onclick="showTab('mi-rama',this)"><span class="nav-icon">🏕️</span>Mi Rama</button>
     <button class="nav-item" id="nav-desarrollo" style="display:none" onclick="showTab('desarrollo',this)"><span class="nav-icon">🏆</span>Logros</button>
-    <button class="nav-item" id="nav-mi-rama" style="display:none" onclick="showTab('mi-rama',this)"><span class="nav-icon">💬</span>Mi Rama</button>
     <button class="nav-item" id="nav-jovenes" style="display:none" onclick="showTab('jovenes-staff',this)"><span class="nav-icon">🏆</span>Jóvenes</button>
+    <button class="nav-item" id="nav-dashboard" style="display:none" onclick="showTab('dashboard',this)"><span class="nav-icon">📈</span>Progreso</button>
     <button class="nav-item" onclick="showTab('calendario',this)"><span class="nav-icon">📅</span>Calendario</button>
     <button class="nav-item" onclick="showTab('documentos',this)"><span class="nav-icon">📁</span>Archivos</button>
     <button class="nav-item" onclick="showTab('perfil',this)"><span class="nav-icon">👤</span>Perfil</button>
@@ -1075,15 +1147,15 @@ function showTab(id, btn) {
   document.getElementById('tab-' + id).classList.add('active');
   if (btn) btn.classList.add('active');
   else {
-    const map={playon:0,ramas:1,desarrollo:2,'mi-rama':3,'jovenes-staff':4,calendario:5,documentos:6,perfil:7,admin:8};
+    const map={'mi-rama':0,desarrollo:1,'jovenes-staff':2,dashboard:3,calendario:4,documentos:5,perfil:6,admin:7};
     if(map[id]!==undefined) document.querySelectorAll('.nav-item')[map[id]].classList.add('active');
   }
-  if (id==='ramas') renderRamas();
   if (id==='perfil') cargarDatosPerfil();
   if (id==='desarrollo') renderDesarrollo();
   if (id==='mi-rama') initMiRama();
   if (id==='jovenes-staff') initJovenesStaff();
-  if (id==='admin' && window.cargarSolicitudesAdmin) window.cargarSolicitudesAdmin();
+  if (id==='dashboard') initDashboard();
+  if (id==='admin' && window.cargarSolicitudesAdmin) { window.cargarSolicitudesAdmin(); if (window.cargarAdminsDinamicos) window.cargarAdminsDinamicos(); }
   window.scrollTo({top:0,behavior:'smooth'});
 }
 
@@ -1202,7 +1274,8 @@ function renderDesarrollo() {
         ETAPA_ICONOS = window._ETAPA_ICONOS, RAMA_LOGO_GRUPO = window._RAMA_LOGO_GRUPO;
   if (!ROLES_RAMA.includes(rol)) { wrap.innerHTML = `<p style="font-size:13px;color:var(--text-sec)">Esta sección es para jóvenes de una rama.</p>`; return; }
 
-  const desarrollo = up.desarrollo || { promesa:0, etapas:{}, especialidades:[] };
+  const porRama = (up.desarrollo && up.desarrollo.porRama) || {};
+  const desarrollo = porRama[rol] || { promesa:0, etapas:{}, especialidades:[] };
   const etapas = ETAPAS_POR_RAMA[rol] || [];
 
   let html = `<div class="trofeo-seccion-titulo">Promesa</div>`;
@@ -1219,6 +1292,16 @@ function renderDesarrollo() {
     html += `<p style="font-size:12px;color:var(--text-sec)">Todavía no tenés especialidades cargadas.</p>`;
   } else {
     especialidades.forEach(e => { html += trofeoCardHtml(e.nombre, RAMA_LOGO_GRUPO[rol], e.pct || 0); });
+  }
+
+  const notasPublicas = (up.desarrollo.notas || []).filter(n => n.tipo === 'publica' && n.rama === rol);
+  html += `<div class="trofeo-seccion-titulo">Notas de tu dirigente</div>`;
+  if (notasPublicas.length === 0) {
+    html += `<p style="font-size:12px;color:var(--text-sec)">Todavía no tenés notas.</p>`;
+  } else {
+    notasPublicas.slice().reverse().forEach(n => {
+      html += `<div class="info-card" style="margin-bottom:8px"><p style="font-size:13px">${escapeHtmlLocal(n.texto)}</p><p style="font-size:10px;color:var(--text-sec);margin-top:6px">— ${escapeHtmlLocal(n.autor||'')}</p></div>`;
+    });
   }
   wrap.innerHTML = html;
 }
@@ -1264,17 +1347,58 @@ function initMiRama() {
       </div>`;
     const guardada = window._miRamaSeleccionada || '';
     if (guardada) document.getElementById('mi-rama-select').value = guardada;
-    escucharMuroRama(guardada);
+    actualizarMiRamaVista(guardada);
   } else {
     selectorWrap.innerHTML = '';
-    escucharMuroRama(ramaActivaUsuario());
+    actualizarMiRamaVista(ramaActivaUsuario());
   }
+}
+
+function actualizarMiRamaVista(rama) {
+  renderMiRamaHeader(rama);
+  renderMiRamaInfoCard(rama);
+  escucharMuroRama(rama);
+}
+
+function renderMiRamaHeader(rama) {
+  const header = document.getElementById('mi-rama-header');
+  if (!rama) {
+    header.innerHTML = `<div style="font-family:'Playfair Display',serif;font-size:20px;font-weight:700;margin-bottom:14px;color:var(--azul)">🏕️ Mi Rama</div>`;
+    return;
+  }
+  const color  = window._RAMA_COLORES[rama] || '#1a3a6b';
+  const sede   = window._RAMA_SEDE_NOMBRE[rama] || rama;
+  const icono  = window._RAMA_SEDE_ICONO[rama] || '⚜️';
+  header.innerHTML = `
+    <div style="background:${color};color:white;border-radius:var(--radius);padding:16px 18px;margin-bottom:14px;display:flex;align-items:center;gap:12px;box-shadow:var(--shadow)">
+      <div style="width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,0.18);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">${icono}</div>
+      <div>
+        <div style="font-family:'Playfair Display',serif;font-size:19px;font-weight:700;line-height:1.1">${sede}</div>
+        <div style="font-size:11px;opacity:0.85">Rama ${window._ROL_LABEL[rama]||rama}</div>
+      </div>
+    </div>`;
+}
+
+function renderMiRamaInfoCard(rama) {
+  const wrap = document.getElementById('mi-rama-info-card');
+  if (!rama) { wrap.innerHTML = ''; return; }
+  const r = RAMAS.find(x => x.nombre === rama);
+  if (!r) { wrap.innerHTML = ''; return; }
+  const puedeAcceder = window.puedeAccederCarpeta ? window.puedeAccederCarpeta(rama) : false;
+  wrap.innerHTML = `
+    <div class="info-card"><h4>¿Qué hacemos?</h4><p>${r.descripcion}</p></div>
+    <div class="info-card"><h4>Carpeta de archivos</h4>
+      ${puedeAcceder
+        ? `<button class="btn-carpeta" style="background:${r.color};color:white" onclick="window.open('${r.carpetaUrl}','_blank')">📁 Abrir carpeta ${r.nombre}</button>`
+        : `<p style="font-size:13px;color:var(--text-sec);margin-bottom:10px">No tenés acceso a esta carpeta todavía.</p>
+           <button class="btn-carpeta" style="background:#e0e8f5;color:var(--azul)" onclick="solicitarPermisoCarpeta('${r.nombre}')">📧 Solicitar acceso a ${r.nombre}</button>`}
+    </div>`;
 }
 
 window.cambiarMiRamaSeleccionada = () => {
   const rama = document.getElementById('mi-rama-select').value;
   window._miRamaSeleccionada = rama;
-  escucharMuroRama(rama);
+  actualizarMiRamaVista(rama);
 };
 
 function escucharMuroRama(rama) {
@@ -1373,7 +1497,12 @@ let editorDesarrolloActual = null;
 
 window.abrirEditorDesarrollo = (joven) => {
   editorDesarrolloActual = joven;
-  if (!editorDesarrolloActual.desarrollo) editorDesarrolloActual.desarrollo = { promesa:0, etapas:{}, especialidades:[] };
+  if (!editorDesarrolloActual.desarrollo) editorDesarrolloActual.desarrollo = { porRama:{}, notas:[] };
+  if (!editorDesarrolloActual.desarrollo.porRama) editorDesarrolloActual.desarrollo.porRama = {};
+  if (!editorDesarrolloActual.desarrollo.notas) editorDesarrolloActual.desarrollo.notas = [];
+  if (!editorDesarrolloActual.desarrollo.porRama[editorDesarrolloActual.rol]) {
+    editorDesarrolloActual.desarrollo.porRama[editorDesarrolloActual.rol] = { promesa:0, etapas:{}, especialidades:[] };
+  }
   renderEditorDesarrollo();
 };
 
@@ -1382,10 +1511,13 @@ function renderEditorDesarrollo() {
   const wrap = document.getElementById('jovenes-staff-editor-wrap');
   const rol = j.rol;
   const etapas = window._ETAPAS_POR_RAMA[rol] || [];
-  const d = j.desarrollo;
+  const d = j.desarrollo.porRama[rol];
+  const color = window._RAMA_COLORES[rol] || '#1a3a6b';
 
   let html = `<div class="editor-desarrollo-card">
-    <div style="font-weight:800;font-size:15px;margin-bottom:14px;color:var(--azul)">✏️ Editando: ${j.nombre}</div>
+    <div style="font-weight:800;font-size:15px;margin-bottom:4px;color:var(--azul)">✏️ Editando: ${j.nombre}</div>
+    <div style="font-size:12px;color:var(--text-sec);margin-bottom:14px">Rama actual: <b style="color:${color}">${rol}</b></div>
+
     <div class="editor-etapa-row">
       <img src="${window._RAMA_LOGO_GRUPO[rol]}" alt="Promesa">
       <span class="et-nombre">Promesa</span>
@@ -1412,38 +1544,233 @@ function renderEditorDesarrollo() {
       </div>`).join('')}</div>
     <button class="btn-add-especialidad" onclick="agregarEspecialidad()">➕ Agregar especialidad</button>
     <button class="btn-primary" style="margin-top:16px" onclick="guardarEditorDesarrollo()">💾 Guardar cambios</button>
+
+    <div style="font-weight:700;font-size:13px;margin:22px 0 8px;color:var(--text-sec);border-top:1px solid var(--fondo);padding-top:16px">PASAR A OTRA RAMA</div>
+    <p style="font-size:11px;color:var(--text-sec);margin-bottom:8px">No se pierde nada de lo cargado en ${rol}: queda guardado en su historial.</p>
+    <div style="display:flex;gap:8px">
+      <select id="select-pase-rama" style="flex:1;padding:9px 12px;border-radius:8px;border:1.5px solid var(--azul-cl)">
+        <option value="">-- Elegí la nueva rama --</option>
+        ${window._ROLES_RAMA.filter(r => r !== rol).map(r => `<option value="${r}">${window._ROL_LABEL[r]||r}</option>`).join('')}
+      </select>
+      <button class="btn-aprobar" onclick="confirmarPaseDeRama()">Pasar</button>
+    </div>
+
+    ${renderHistorialRamasAnteriores(j, rol)}
+
+    <div style="font-weight:700;font-size:13px;margin:22px 0 8px;color:var(--text-sec);border-top:1px solid var(--fondo);padding-top:16px">NOTAS</div>
+    <div id="notas-list">${renderNotasList(j, rol)}</div>
+    <textarea id="nota-nueva-texto" placeholder="Escribí una nota sobre ${j.nombre}..." maxlength="300" style="width:100%;border:1.5px solid var(--azul-cl);border-radius:8px;padding:8px 10px;font-family:'Nunito',sans-serif;font-size:13px;resize:none;height:56px;margin-top:8px"></textarea>
+    <div style="display:flex;align-items:center;gap:10px;margin-top:6px">
+      <label style="display:flex;align-items:center;gap:4px;font-size:12px;font-weight:600;text-transform:none"><input type="radio" name="nota-tipo" value="publica" checked style="width:auto"> Pública (la ve el joven)</label>
+      <label style="display:flex;align-items:center;gap:4px;font-size:12px;font-weight:600;text-transform:none"><input type="radio" name="nota-tipo" value="interna" style="width:auto"> Interna (solo staff)</label>
+    </div>
+    <button class="btn-add-especialidad" style="margin-top:8px" onclick="agregarNota()">➕ Agregar nota</button>
   </div>`;
   wrap.innerHTML = html;
 }
 
+function renderHistorialRamasAnteriores(j, rolActual) {
+  const porRama = j.desarrollo.porRama || {};
+  const anteriores = Object.keys(porRama).filter(r => r !== rolActual);
+  if (anteriores.length === 0) return '';
+  let html = `<div style="font-weight:700;font-size:13px;margin:22px 0 8px;color:var(--text-sec);border-top:1px solid var(--fondo);padding-top:16px">HISTORIAL DE RAMAS ANTERIORES</div>`;
+  anteriores.forEach(r => {
+    const dr = porRama[r];
+    const color = window._RAMA_COLORES[r] || '#1a3a6b';
+    const etapas = window._ETAPAS_POR_RAMA[r] || [];
+    html += `<div class="info-card" style="border-left:4px solid ${color}">
+      <h4 style="color:${color}">${r}</h4>
+      <p style="font-size:12px">Promesa: <b>${dr.promesa||0}%</b></p>
+      ${etapas.map(et => `<p style="font-size:12px">${et}: <b>${(dr.etapas&&dr.etapas[et])||0}%</b></p>`).join('')}
+      ${(dr.especialidades||[]).length ? `<p style="font-size:12px;margin-top:4px">Especialidades: ${dr.especialidades.map(e=>e.nombre+' ('+e.pct+'%)').join(', ')}</p>` : ''}
+    </div>`;
+  });
+  return html;
+}
+
+function renderNotasList(j, rol) {
+  const notas = (j.desarrollo.notas || []).filter(n => n.rama === rol);
+  if (notas.length === 0) return `<p style="font-size:12px;color:var(--text-sec)">Todavía no hay notas para esta rama.</p>`;
+  return notas.slice().reverse().map((n,idx) => `
+    <div class="info-card" style="margin-bottom:8px;border-left:4px solid ${n.tipo==='publica' ? '#2e7d32' : '#b01a1a'}">
+      <p style="font-size:12.5px">${escapeHtmlLocal(n.texto)}</p>
+      <p style="font-size:10px;color:var(--text-sec);margin-top:6px">${n.tipo==='publica' ? '👁️ Pública' : '🔒 Interna'} — ${escapeHtmlLocal(n.autor||'')} · ${n.fecha ? new Date(n.fecha).toLocaleDateString('es-AR') : ''}</p>
+    </div>`).join('');
+}
+
 window.actualizarEditorEtapa = (clave, valor) => {
   valor = parseInt(valor);
+  const d = editorDesarrolloActual.desarrollo.porRama[editorDesarrolloActual.rol];
   if (clave === 'promesa') {
-    editorDesarrolloActual.desarrollo.promesa = valor;
+    d.promesa = valor;
     document.getElementById('val-promesa').textContent = valor + '%';
   } else {
     const et = clave.split(':')[1];
-    if (!editorDesarrolloActual.desarrollo.etapas) editorDesarrolloActual.desarrollo.etapas = {};
-    editorDesarrolloActual.desarrollo.etapas[et] = valor;
+    if (!d.etapas) d.etapas = {};
+    d.etapas[et] = valor;
     document.getElementById('val-etapa-' + et.replace(/\s/g,'_')).textContent = valor + '%';
   }
 };
 
 window.agregarEspecialidad = () => {
-  if (!editorDesarrolloActual.desarrollo.especialidades) editorDesarrolloActual.desarrollo.especialidades = [];
-  editorDesarrolloActual.desarrollo.especialidades.push({ nombre: 'Nueva especialidad', pct: 0 });
+  const d = editorDesarrolloActual.desarrollo.porRama[editorDesarrolloActual.rol];
+  if (!d.especialidades) d.especialidades = [];
+  d.especialidades.push({ nombre: 'Nueva especialidad', pct: 0 });
   renderEditorDesarrollo();
 };
 window.editarEspecialidad = (i, campo, valor) => {
-  editorDesarrolloActual.desarrollo.especialidades[i][campo] = campo === 'pct' ? parseInt(valor) : valor;
+  const d = editorDesarrolloActual.desarrollo.porRama[editorDesarrolloActual.rol];
+  d.especialidades[i][campo] = campo === 'pct' ? parseInt(valor) : valor;
 };
 window.borrarEspecialidad = (i) => {
-  editorDesarrolloActual.desarrollo.especialidades.splice(i, 1);
+  const d = editorDesarrolloActual.desarrollo.porRama[editorDesarrolloActual.rol];
+  d.especialidades.splice(i, 1);
   renderEditorDesarrollo();
 };
+
+window.agregarNota = () => {
+  const texto = document.getElementById('nota-nueva-texto').value.trim();
+  if (!texto) { alert('Escribí algo primero.'); return; }
+  const tipo = document.querySelector('input[name="nota-tipo"]:checked').value;
+  const up = window._userProfile ? window._userProfile() : null;
+  editorDesarrolloActual.desarrollo.notas.push({
+    texto, tipo, rama: editorDesarrolloActual.rol,
+    autor: up ? up.nombre : '', fecha: Date.now()
+  });
+  renderEditorDesarrollo();
+};
+
+window.confirmarPaseDeRama = async () => {
+  const nuevaRama = document.getElementById('select-pase-rama').value;
+  if (!nuevaRama) { alert('Elegí la rama nueva.'); return; }
+  if (!confirm(`¿Pasar a ${editorDesarrolloActual.nombre} de ${editorDesarrolloActual.rol} a ${nuevaRama}? Su historial en ${editorDesarrolloActual.rol} queda guardado.`)) return;
+  // Guardamos lo que haya quedado cargado antes de pasar
+  await window.guardarDesarrolloJoven(editorDesarrolloActual.uid, editorDesarrolloActual.desarrollo);
+  await window.cambiarRolJoven(editorDesarrolloActual.uid, nuevaRama);
+  editorDesarrolloActual.rol = nuevaRama;
+  if (!editorDesarrolloActual.desarrollo.porRama[nuevaRama]) {
+    editorDesarrolloActual.desarrollo.porRama[nuevaRama] = { promesa:0, etapas:{}, especialidades:[] };
+  }
+  alert(`✅ ${editorDesarrolloActual.nombre} ahora es de ${nuevaRama}.`);
+  renderEditorDesarrollo();
+  if (window.cargarListaJovenesStaff) window.cargarListaJovenesStaff(document.getElementById('jov-staff-rama-select') ? document.getElementById('jov-staff-rama-select').value : undefined);
+};
+
 window.guardarEditorDesarrollo = async () => {
   await window.guardarDesarrolloJoven(editorDesarrolloActual.uid, editorDesarrolloActual.desarrollo);
+  await window.registrarProgresoHistorial(editorDesarrolloActual);
   alert('✅ Desarrollo guardado para ' + editorDesarrolloActual.nombre);
+};
+
+// ===================== DASHBOARD DE CRECIMIENTO =====================
+let dashChart = null;
+let dashJovenesCache = [];
+
+async function initDashboard() {
+  const up = window._userProfile ? window._userProfile() : null;
+  if (!up) return;
+  const esAdminOColab = up.isAdmin || up.rol === 'Colaborador';
+  const ramaFija = (!esAdminOColab && up.rol === 'Dirigente') ? (up.ramaAsignada || '') : '';
+
+  const filtrosWrap = document.getElementById('dash-filtros');
+  filtrosWrap.innerHTML = `
+    <select id="dash-rama-select" onchange="dashCambioRama()" ${ramaFija ? 'disabled' : ''}>
+      ${ramaFija ? `<option value="${ramaFija}">${window._ROL_LABEL[ramaFija]||ramaFija}</option>`
+                 : `<option value="">Todas las ramas</option>${window._ROLES_RAMA.map(r => `<option value="${r}">${window._ROL_LABEL[r]||r}</option>`).join('')}`}
+    </select>
+    <select id="dash-persona-select" onchange="cargarDashboard()"><option value="">Todas las personas</option></select>
+    <select id="dash-etapa-select" onchange="cargarDashboard()"><option value="">Todas las etapas</option></select>
+  `;
+  if (ramaFija) document.getElementById('dash-rama-select').value = ramaFija;
+  await dashCambioRama();
+}
+
+window.dashCambioRama = async () => {
+  const rama = document.getElementById('dash-rama-select').value;
+  const personaSelect = document.getElementById('dash-persona-select');
+  const etapaSelect = document.getElementById('dash-etapa-select');
+
+  dashJovenesCache = [];
+  if (rama) {
+    dashJovenesCache = await window.obtenerJovenesPorRama(rama);
+  } else {
+    for (const r of window._ROLES_RAMA) {
+      const js = await window.obtenerJovenesPorRama(r);
+      dashJovenesCache = dashJovenesCache.concat(js);
+    }
+  }
+  personaSelect.innerHTML = `<option value="">Todas las personas</option>` +
+    dashJovenesCache.map(j => `<option value="${j.uid}">${j.nombre}</option>`).join('');
+
+  let etapasDisponibles = [];
+  if (rama) etapasDisponibles = window._ETAPAS_POR_RAMA[rama] || [];
+  else Object.values(window._ETAPAS_POR_RAMA).forEach(arr => etapasDisponibles = etapasDisponibles.concat(arr));
+  etapasDisponibles = ['Promesa', ...new Set(etapasDisponibles)];
+  etapaSelect.innerHTML = `<option value="">Todas las etapas</option>` + etapasDisponibles.map(e => `<option value="${e}">${e}</option>`).join('');
+
+  cargarDashboard();
+};
+
+window.cargarDashboard = async () => {
+  const rama    = document.getElementById('dash-rama-select').value;
+  const uid     = document.getElementById('dash-persona-select').value;
+  const etapa   = document.getElementById('dash-etapa-select').value;
+
+  let datos = await window.obtenerHistorialProgreso({ rama: rama || null, uid: uid || null });
+  if (etapa) datos = datos.filter(d => d.etapa === etapa);
+
+  const ctx = document.getElementById('dash-chart').getContext('2d');
+  if (dashChart) dashChart.destroy();
+
+  if (uid && etapa) {
+    // Serie en el tiempo para una persona + una etapa puntual
+    const persona = dashJovenesCache.find(j => j.uid === uid);
+    const color = window._RAMA_COLORES[persona ? persona.rol : rama] || '#1a3a6b';
+    const ordenados = datos.slice().sort((a,b) => (a.fecha?.toDate?.()||0) - (b.fecha?.toDate?.()||0));
+    dashChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: ordenados.map(d => d.fecha && d.fecha.toDate ? d.fecha.toDate().toLocaleDateString('es-AR') : ''),
+        datasets: [{ label: etapa, data: ordenados.map(d => d.pct), borderColor: color, backgroundColor: color, tension: 0.25 }]
+      },
+      options: { responsive:true, scales:{ y:{ min:0, max:100 } } }
+    });
+    document.getElementById('dash-resumen').innerHTML = `<p style="font-size:12px;color:var(--text-sec)">Evolución de "${etapa}" para ${persona ? persona.nombre : ''} a lo largo del tiempo.</p>`;
+  } else if (uid) {
+    // Última foto de cada etapa para una persona
+    const persona = dashJovenesCache.find(j => j.uid === uid);
+    const color = window._RAMA_COLORES[persona ? persona.rol : rama] || '#1a3a6b';
+    const porEtapa = {};
+    datos.forEach(d => { porEtapa[d.etapa] = d.pct; }); // como viene ordenado por fecha asc, el último pisa
+    const labels = Object.keys(porEtapa);
+    dashChart = new Chart(ctx, {
+      type: 'bar',
+      data: { labels, datasets: [{ label: persona ? persona.nombre : 'Progreso', data: labels.map(l => porEtapa[l]), backgroundColor: color }] },
+      options: { responsive:true, scales:{ y:{ min:0, max:100 } } }
+    });
+    document.getElementById('dash-resumen').innerHTML = `<p style="font-size:12px;color:var(--text-sec)">Último valor cargado de cada etapa para ${persona ? persona.nombre : ''}.</p>`;
+  } else {
+    // Comparativa entre personas (última foto), coloreado por rama de cada una
+    const porPersona = {};
+    datos.forEach(d => {
+      if (etapa && d.etapa !== etapa) return;
+      porPersona[d.uid] = { nombre: d.nombre, rama: d.rama, pct: d.pct };
+    });
+    const entradas = Object.values(porPersona);
+    dashChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: entradas.map(e => e.nombre),
+        datasets: [{
+          label: etapa || 'Promedio de progreso',
+          data: entradas.map(e => e.pct),
+          backgroundColor: entradas.map(e => window._RAMA_COLORES[e.rama] || '#1a3a6b')
+        }]
+      },
+      options: { responsive:true, scales:{ y:{ min:0, max:100 } } }
+    });
+    document.getElementById('dash-resumen').innerHTML = `<p style="font-size:12px;color:var(--text-sec)">${etapa ? `Último valor de "${etapa}"` : 'Último valor cargado'} por persona, coloreado según su rama.</p>`;
+  }
 };
 
 function detectarAndroid() {
