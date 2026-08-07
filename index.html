@@ -3,8 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="PringlesApp">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="application-name" content="PringlesApp">
+<meta name="theme-color" content="#1a3a6b">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="pj-favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="pj-apple-touch-icon.png">
 <title>La Pringles — Portal Jóvenes</title>
-<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Playfair+Display:wght@700&family=Caveat:wght@600;700&display=swap" rel="stylesheet">
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -529,8 +538,36 @@
     await updateDoc(doc(db, "perfiles", uid), { desarrollo });
   };
 
-  window.cambiarRolJoven = async (uid, nuevaRama) => {
+  window.cambiarRolJoven = async (uid, nuevaRama, email) => {
     await updateDoc(doc(db, "perfiles", uid), { rol: nuevaRama });
+    if (email) {
+      const emailKey = email.replace(/\./g, "_");
+      await setDoc(doc(db, "autorizados", emailKey), { rol: nuevaRama }, { merge: true });
+    }
+  };
+
+  window.eliminarPerfilJoven = async (uid, email) => {
+    if (!userProfile || !userProfile.isAdmin) { alert("Solo un administrador puede eliminar perfiles."); return; }
+    await deleteDoc(doc(db, "perfiles", uid));
+    if (email) {
+      const emailKey = email.replace(/\./g, "_");
+      await deleteDoc(doc(db, "autorizados", emailKey)).catch(()=>{});
+    }
+  };
+
+  // ============ DATOS PERSONALES Y DOCUMENTACIÓN ============
+  window.guardarDatosPersonalesJoven = async (uid, datos) => {
+    await updateDoc(doc(db, "perfiles", uid), datos);
+  };
+
+  window.guardarDocumentacionJoven = async (uid, documentacion) => {
+    if (!userProfile || !userProfile.isAdmin) { alert("Solo administradores pueden marcar documentación."); return; }
+    await updateDoc(doc(db, "perfiles", uid), { documentacion });
+  };
+
+  // ============ CAMPAMENTOS VIVIDOS ============
+  window.agregarCampamentoJoven = async (uid, campamentosActuales) => {
+    await updateDoc(doc(db, "perfiles", uid), { campamentos: campamentosActuales });
   };
 
   // ============ HISTORIAL DE PROGRESO (para el dashboard) ============
@@ -706,6 +743,8 @@ body { font-family:'Nunito',sans-serif; background:var(--fondo); color:var(--tex
 .btn-logout { background:none; border:1px solid rgba(255,255,255,0.3); color:white; border-radius:6px; padding:3px 8px; font-size:10px; cursor:pointer; font-family:'Nunito',sans-serif; }
 
 /* REDES SOCIALES EN HEADER */
+.header-redes-wrap { display:flex; flex-direction:column; align-items:center; gap:2px; }
+.header-redes-cartel { font-family:'Caveat',cursive; font-size:15px; font-weight:700; color:var(--amarillo); line-height:1; transform:rotate(-3deg); white-space:nowrap; }
 .header-redes {
   display:flex; align-items:center; gap:6px;
 }
@@ -877,6 +916,10 @@ body { font-family:'Nunito',sans-serif; background:var(--fondo); color:var(--tex
 .joven-staff-card img { width:38px; height:38px; border-radius:50%; object-fit:cover; }
 .joven-staff-card strong { font-size:13px; flex:1; }
 .editor-desarrollo-card { background:white; border-radius:var(--radius); box-shadow:var(--shadow); padding:16px; margin-top:14px; }
+.datos-personales-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px 12px; margin-bottom:10px; }
+.datos-personales-grid label { font-size:10.5px; font-weight:700; color:var(--text-sec); text-transform:uppercase; letter-spacing:0.04em; display:block; margin-bottom:3px; }
+.datos-personales-grid input { width:100%; padding:8px 10px; border-radius:8px; border:1.5px solid var(--azul-cl); font-size:12.5px; font-family:'Nunito',sans-serif; }
+.papeles-al-dia { background:#e8f5e9; color:#2e7d32; font-weight:800; font-size:13px; border-radius:8px; padding:10px 14px; margin-bottom:10px; text-align:center; }
 .editor-etapa-row { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
 .editor-etapa-row img { width:34px; height:34px; border-radius:8px; object-fit:cover; flex-shrink:0; }
 .editor-etapa-row .et-nombre { font-size:12.5px; font-weight:700; width:100px; flex-shrink:0; }
@@ -942,23 +985,26 @@ body { font-family:'Nunito',sans-serif; background:var(--fondo); color:var(--tex
     <div class="header-title">La Pringles <span>Portal Jóvenes</span></div>
 
     <!-- Redes sociales -->
-    <div class="header-redes">
-      <!-- Instagram -->
-      <a href="https://www.instagram.com/gruposcoutpringles/" target="_blank" rel="noopener" title="Instagram">
-        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>
-      </a>
-      <!-- Facebook -->
-      <a href="https://www.facebook.com/GrupoScoutPringles/" target="_blank" rel="noopener" title="Facebook">
-        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
-      </a>
-      <!-- Museo (Facebook) -->
-      <a href="https://www.facebook.com/museoscoutpostiglione" target="_blank" rel="noopener" title="Museo Scout Postiglione">
-        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 3L2 9v1h2v10h16V10h2V9L12 3zm0 2.236L20 9.764V19H4V9.764L12 5.236zM10 11v6h4v-6h-4z"/></svg>
-      </a>
-      <!-- YouTube -->
-      <a href="https://www.youtube.com/@GrupoScoutCnel.JuanP.Pringles" target="_blank" rel="noopener" title="YouTube">
-        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M23.495 6.205a3.007 3.007 0 0 0-2.088-2.088c-1.87-.501-9.396-.501-9.396-.501s-7.507-.01-9.396.501A3.007 3.007 0 0 0 .527 6.205a31.247 31.247 0 0 0-.522 5.805 31.247 31.247 0 0 0 .522 5.783 3.007 3.007 0 0 0 2.088 2.088c1.868.502 9.396.502 9.396.502s7.506 0 9.396-.502a3.007 3.007 0 0 0 2.088-2.088 31.247 31.247 0 0 0 .5-5.783 31.247 31.247 0 0 0-.5-5.805zM9.609 15.601V8.408l6.264 3.602z"/></svg>
-      </a>
+    <div class="header-redes-wrap">
+      <div class="header-redes">
+        <!-- Instagram -->
+        <a href="https://www.instagram.com/gruposcoutpringles/" target="_blank" rel="noopener" title="Instagram">
+          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>
+        </a>
+        <!-- Facebook -->
+        <a href="https://www.facebook.com/GrupoScoutPringles/" target="_blank" rel="noopener" title="Facebook">
+          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+        </a>
+        <!-- Museo (Facebook) -->
+        <a href="https://www.facebook.com/museoscoutpostiglione" target="_blank" rel="noopener" title="Museo Scout Postiglione">
+          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 3L2 9v1h2v10h16V10h2V9L12 3zm0 2.236L20 9.764V19H4V9.764L12 5.236zM10 11v6h4v-6h-4z"/></svg>
+        </a>
+        <!-- YouTube -->
+        <a href="https://www.youtube.com/@GrupoScoutCnel.JuanP.Pringles" target="_blank" rel="noopener" title="YouTube">
+          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M23.495 6.205a3.007 3.007 0 0 0-2.088-2.088c-1.87-.501-9.396-.501-9.396-.501s-7.507-.01-9.396.501A3.007 3.007 0 0 0 .527 6.205a31.247 31.247 0 0 0-.522 5.805 31.247 31.247 0 0 0 .522 5.783 3.007 3.007 0 0 0 2.088 2.088c1.868.502 9.396.502 9.396.502s7.506 0 9.396-.502a3.007 3.007 0 0 0 2.088-2.088 31.247 31.247 0 0 0 .5-5.783 31.247 31.247 0 0 0-.5-5.805zM9.609 15.601V8.408l6.264 3.602z"/></svg>
+        </a>
+      </div>
+      <div class="header-redes-cartel">¡Seguinos en Redes!</div>
     </div>
 
     <div class="header-user">
@@ -971,10 +1017,11 @@ body { font-family:'Nunito',sans-serif; background:var(--fondo); color:var(--tex
 
   <div class="app-content">
 
-    <div class="app-banner" id="android-banner">
-      <h3>📱 Instalá La Pringles como app</h3>
-      <p>Tocá el menú del navegador (⋮) → "Agregar a pantalla de inicio"</p>
-      <button onclick="document.getElementById('android-banner').style.display='none'">Entendido ✓</button>
+    <div class="app-banner" id="android-banner" style="display:none">
+      <h3>📱 Instalá PringlesApp</h3>
+      <p id="install-banner-texto">Agregala a tu pantalla de inicio para entrar más rápido</p>
+      <button id="install-banner-btn" onclick="instalarComoApp()">Instalar</button>
+      <button onclick="cerrarInstallBanner()" style="background:none;border:1px solid rgba(255,255,255,0.4);color:white;margin-left:6px">Ahora no</button>
     </div>
 
     <!-- EL PLAYÓN -->
@@ -1017,6 +1064,7 @@ body { font-family:'Nunito',sans-serif; background:var(--fondo); color:var(--tex
     <div class="tab-panel" id="tab-perfil">
       <div class="perfil-card">
         <div style="font-family:'Playfair Display',serif;font-size:18px;font-weight:700;margin-bottom:16px;color:var(--azul)">👤 Mi Perfil</div>
+        <div id="perfil-papeles-wrap"></div>
 
         <!-- Foto: solo muestra, sin cambio -->
         <div class="perfil-foto-wrap">
@@ -1242,6 +1290,14 @@ function cargarDatosPerfil() {
   if (!up) return;
   document.getElementById('perfil-nombre').value = up.nombre || '';
   document.getElementById('perfil-edad').value   = up.edad   || '';
+
+  const papelesWrap = document.getElementById('perfil-papeles-wrap');
+  const DOCS_REQ = ['ficha','historiaClinica','autorizacionImagen','fotoDni','fotoPartida','fotoEncargado','carnetVacunacion','carnetObraSocial','foto4x4'];
+  const doc2 = up.documentacion || {};
+  if (papelesWrap) {
+    papelesWrap.innerHTML = (window._ROLES_RAMA.includes(up.rol) && DOCS_REQ.every(k => doc2[k]))
+      ? `<div class="papeles-al-dia">✅ Papeles al día</div>` : '';
+  }
 
   const rol = up.rol || '';
   const ROLES_RAMA = window._ROLES_RAMA, ROL_LABEL = window._ROL_LABEL;
@@ -1568,11 +1624,14 @@ window.abrirEditorDesarrollo = (joven) => {
 
 function renderEditorDesarrollo() {
   const j = editorDesarrolloActual;
+  const up = window._userProfile ? window._userProfile() : null;
   const wrap = document.getElementById('jovenes-staff-editor-wrap');
   const rol = j.rol;
   const etapas = window._ETAPAS_POR_RAMA[rol] || [];
   const d = j.desarrollo.porRama[rol];
   const color = window._RAMA_COLORES[rol] || '#1a3a6b';
+  const doc = j.documentacion || {};
+  const docsCompletos = DOCS_REQUERIDOS.every(k => doc[k]);
 
   let html = `<div class="editor-desarrollo-card">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
@@ -1582,6 +1641,25 @@ function renderEditorDesarrollo() {
       </div>
       <button class="btn-carpeta" style="background:var(--azul-cl);color:var(--azul);width:auto;padding:8px 12px;font-size:11px;flex-shrink:0" onclick="descargarHistorialPDF()">📄 Descargar historial PDF</button>
     </div>
+
+    <div style="font-weight:700;font-size:13px;margin:8px 0 8px;color:var(--text-sec)">DATOS PERSONALES</div>
+    <div class="datos-personales-grid">
+      <div><label>Email</label><div class="rol-fijo-display" style="padding:8px 10px;font-size:12px">${j.email||'—'}</div></div>
+      <div><label>DNI</label><input type="text" id="dp-dni" value="${j.dni||''}" placeholder="Sin cargar"></div>
+      <div><label>Fecha de nacimiento</label><input type="date" id="dp-fnac" value="${j.fechaNacimiento||''}"></div>
+      <div><label>Teléfono</label><input type="text" id="dp-tel" value="${j.telefono||''}" placeholder="Sin cargar"></div>
+      <div style="grid-column:1/-1"><label>Dirección</label><input type="text" id="dp-dir" value="${j.direccion||''}" placeholder="Sin cargar"></div>
+    </div>
+    <button class="btn-add-especialidad" onclick="guardarDatosPersonales()">💾 Guardar datos personales</button>
+
+    ${up && up.isAdmin ? `
+    <div style="font-weight:700;font-size:13px;margin:22px 0 8px;color:var(--text-sec);border-top:1px solid var(--fondo);padding-top:16px">DOCUMENTACIÓN (solo administradores)</div>
+    ${docsCompletos ? `<div class="papeles-al-dia">✅ Papeles al día</div>` : ''}
+    <div id="docs-checklist">${DOCS_REQUERIDOS.map(k => `
+      <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;text-transform:none;margin-bottom:6px">
+        <input type="checkbox" style="width:auto" ${doc[k]?'checked':''} onchange="toggleDocumentoJoven('${k}',this.checked)"> ${DOCS_LABELS[k]}
+      </label>`).join('')}</div>
+    ` : ''}
 
     <div class="editor-etapa-row">
       <img src="${window._RAMA_LOGO_GRUPO[rol]}" alt="Promesa">
@@ -1610,6 +1688,18 @@ function renderEditorDesarrollo() {
     <button class="btn-add-especialidad" onclick="agregarEspecialidad()">➕ Agregar especialidad</button>
     <button class="btn-primary" style="margin-top:16px" onclick="guardarEditorDesarrollo()">💾 Guardar cambios</button>
 
+    <div style="font-weight:700;font-size:13px;margin:22px 0 8px;color:var(--text-sec);border-top:1px solid var(--fondo);padding-top:16px">CAMPAMENTOS VIVIDOS</div>
+    <div id="campamentos-list">${(j.campamentos||[]).slice().sort((a,b)=>(a.fecha||'').localeCompare(b.fecha||'')).map((c,i) => `
+      <div class="especialidad-row">
+        <span style="flex:1;font-size:12.5px"><b>${escapeHtmlLocal(c.nombre)}</b> — ${c.fecha ? new Date(c.fecha+'T00:00:00').toLocaleDateString('es-AR') : ''}</span>
+        <button onclick="borrarCampamento(${i})" style="background:none;border:none;color:var(--rojo);cursor:pointer">🗑️</button>
+      </div>`).join('') || '<p style="font-size:12px;color:var(--text-sec)">Todavía no hay campamentos cargados.</p>'}</div>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <input type="text" id="camp-nombre" placeholder="Nombre del campamento" style="flex:2;padding:8px 10px;border-radius:8px;border:1.5px solid var(--azul-cl);font-size:12.5px">
+      <input type="date" id="camp-fecha" style="flex:1;padding:8px 10px;border-radius:8px;border:1.5px solid var(--azul-cl);font-size:12.5px">
+    </div>
+    <button class="btn-add-especialidad" onclick="agregarCampamento()">➕ Agregar campamento</button>
+
     <div style="font-weight:700;font-size:13px;margin:22px 0 8px;color:var(--text-sec);border-top:1px solid var(--fondo);padding-top:16px">PASAR A OTRA RAMA</div>
     <p style="font-size:11px;color:var(--text-sec);margin-bottom:8px">No se pierde nada de lo cargado en ${rol}: queda guardado en su historial.</p>
     <div style="display:flex;gap:8px">
@@ -1630,9 +1720,65 @@ function renderEditorDesarrollo() {
       <label style="display:flex;align-items:center;gap:4px;font-size:12px;font-weight:600;text-transform:none"><input type="radio" name="nota-tipo" value="interna" style="width:auto"> Interna (solo staff)</label>
     </div>
     <button class="btn-add-especialidad" style="margin-top:8px" onclick="agregarNota()">➕ Agregar nota</button>
+
+    ${up && up.isAdmin ? `
+    <div style="border-top:1px solid var(--fondo);margin-top:22px;padding-top:16px">
+      <button style="background:none;border:1px solid var(--rojo);color:var(--rojo);border-radius:8px;padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:'Nunito',sans-serif" onclick="eliminarPerfilDesdeEditor()">🗑️ Eliminar perfil completo</button>
+    </div>` : ''}
   </div>`;
   wrap.innerHTML = html;
 }
+
+const DOCS_REQUERIDOS = ['ficha','historiaClinica','autorizacionImagen','fotoDni','fotoPartida','fotoEncargado','carnetVacunacion','carnetObraSocial','foto4x4'];
+const DOCS_LABELS = {
+  ficha:'Ficha de inscripción', historiaClinica:'Historia clínica', autorizacionImagen:'Autorización de imagen',
+  fotoDni:'Fotocopia de DNI', fotoPartida:'Fotocopia de Part. de Nacimiento', fotoEncargado:'Fotocopia de Padre/Madre/encargado',
+  carnetVacunacion:'Carnet de vacunación', carnetObraSocial:'Fotocopia de carnet de Obra social (si tiene)', foto4x4:'Fotografía 4x4'
+};
+
+window.guardarDatosPersonales = async () => {
+  const datos = {
+    dni: document.getElementById('dp-dni').value.trim(),
+    fechaNacimiento: document.getElementById('dp-fnac').value,
+    telefono: document.getElementById('dp-tel').value.trim(),
+    direccion: document.getElementById('dp-dir').value.trim()
+  };
+  await window.guardarDatosPersonalesJoven(editorDesarrolloActual.uid, datos);
+  Object.assign(editorDesarrolloActual, datos);
+  alert('✅ Datos personales guardados.');
+};
+
+window.toggleDocumentoJoven = async (clave, val) => {
+  if (!editorDesarrolloActual.documentacion) editorDesarrolloActual.documentacion = {};
+  editorDesarrolloActual.documentacion[clave] = val;
+  await window.guardarDocumentacionJoven(editorDesarrolloActual.uid, editorDesarrolloActual.documentacion);
+  renderEditorDesarrollo();
+};
+
+window.agregarCampamento = async () => {
+  const nombre = document.getElementById('camp-nombre').value.trim();
+  const fecha = document.getElementById('camp-fecha').value;
+  if (!nombre) { alert('Escribí el nombre del campamento.'); return; }
+  if (!editorDesarrolloActual.campamentos) editorDesarrolloActual.campamentos = [];
+  editorDesarrolloActual.campamentos.push({ nombre, fecha, agregadoPor: (window._userProfile ? window._userProfile().nombre : '') });
+  await window.agregarCampamentoJoven(editorDesarrolloActual.uid, editorDesarrolloActual.campamentos);
+  renderEditorDesarrollo();
+};
+window.borrarCampamento = async (i) => {
+  if (!confirm('¿Eliminar este campamento del historial?')) return;
+  editorDesarrolloActual.campamentos.splice(i, 1);
+  await window.agregarCampamentoJoven(editorDesarrolloActual.uid, editorDesarrolloActual.campamentos);
+  renderEditorDesarrollo();
+};
+
+window.eliminarPerfilDesdeEditor = async () => {
+  if (!confirm(`¿Eliminar TODO el perfil de ${editorDesarrolloActual.nombre}? Esta acción no se puede deshacer.`)) return;
+  if (!confirm('Confirmá de nuevo: se borra su progreso, notas y datos. ¿Seguro?')) return;
+  await window.eliminarPerfilJoven(editorDesarrolloActual.uid, editorDesarrolloActual.email);
+  alert('Perfil eliminado.');
+  document.getElementById('jovenes-staff-editor-wrap').innerHTML = '';
+  if (window.cargarListaJovenesStaff) window.cargarListaJovenesStaff(document.getElementById('jov-staff-rama-select') ? document.getElementById('jov-staff-rama-select').value : undefined);
+};
 
 function renderHistorialRamasAnteriores(j, rolActual) {
   const porRama = j.desarrollo.porRama || {};
@@ -1750,7 +1896,7 @@ window.confirmarPaseDeRama = async () => {
   if (!confirm(`¿Pasar a ${editorDesarrolloActual.nombre} de ${editorDesarrolloActual.rol} a ${nuevaRama}? Su historial en ${editorDesarrolloActual.rol} queda guardado.`)) return;
   // Guardamos lo que haya quedado cargado antes de pasar
   await window.guardarDesarrolloJoven(editorDesarrolloActual.uid, editorDesarrolloActual.desarrollo);
-  await window.cambiarRolJoven(editorDesarrolloActual.uid, nuevaRama);
+  await window.cambiarRolJoven(editorDesarrolloActual.uid, nuevaRama, editorDesarrolloActual.email);
   editorDesarrolloActual.rol = nuevaRama;
   if (!editorDesarrolloActual.desarrollo.porRama[nuevaRama]) {
     editorDesarrolloActual.desarrollo.porRama[nuevaRama] = { promesa:0, etapas:{}, especialidades:[] };
@@ -1784,6 +1930,9 @@ async function initDashboard() {
     </select>
     <select id="dash-persona-select" onchange="cargarDashboard()"><option value="">Todas las personas</option></select>
     <select id="dash-etapa-select" onchange="cargarDashboard()"><option value="">Todas las etapas</option></select>
+    <label style="display:flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;text-transform:none;padding:9px 4px">
+      <input type="checkbox" id="dash-incluir-anteriores" style="width:auto" onchange="cargarDashboard()"> Incluir quienes ya no están en la rama
+    </label>
   `;
   if (ramaFija) document.getElementById('dash-rama-select').value = ramaFija;
   await dashCambioRama();
@@ -1794,6 +1943,7 @@ window.dashCambioRama = async () => {
   const personaSelect = document.getElementById('dash-persona-select');
   const etapaSelect = document.getElementById('dash-etapa-select');
 
+  // dashJovenesCache siempre son los jóvenes ACTUALMENTE en la rama (o en las 5 ramas si no hay filtro)
   dashJovenesCache = [];
   if (rama) {
     dashJovenesCache = await window.obtenerJovenesPorRama(rama);
@@ -1819,9 +1969,23 @@ window.cargarDashboard = async () => {
   const rama    = document.getElementById('dash-rama-select').value;
   const uid     = document.getElementById('dash-persona-select').value;
   const etapa   = document.getElementById('dash-etapa-select').value;
+  const incluirAnteriores = document.getElementById('dash-incluir-anteriores') ? document.getElementById('dash-incluir-anteriores').checked : false;
 
-  let datos = await window.obtenerHistorialProgreso({ rama: rama || null, uid: uid || null });
+  let filtroRama = rama || null;
+  if (uid && !incluirAnteriores) {
+    // Por defecto medimos SOLO la progresión de la rama actual del joven, no la suma de ramas anteriores.
+    const persona = dashJovenesCache.find(j => j.uid === uid);
+    filtroRama = persona ? persona.rol : filtroRama;
+  }
+
+  let datos = await window.obtenerHistorialProgreso({ rama: filtroRama, uid: uid || null });
   if (etapa) datos = datos.filter(d => d.etapa === etapa);
+
+  if (!uid && !incluirAnteriores) {
+    // Solo jóvenes que siguen actualmente en la rama filtrada
+    const idsActuales = new Set(dashJovenesCache.map(j => j.uid));
+    datos = datos.filter(d => idsActuales.has(d.uid));
+  }
 
   const ctx = document.getElementById('dash-chart').getContext('2d');
   if (dashChart) dashChart.destroy();
@@ -1917,6 +2081,30 @@ window.descargarHistorialPDF = async () => {
     if (y + alturaNecesaria > 780) { pdf.addPage(); y = 50; }
   }
 
+  // Datos personales y de contacto
+  pdf.setFont('helvetica', 'bold'); pdf.setFontSize(12);
+  pdf.text('Datos personales', 50, y); y += 18;
+  pdf.setFont('helvetica', 'normal'); pdf.setFontSize(10);
+  const fNac = j.fechaNacimiento ? new Date(j.fechaNacimiento + 'T00:00:00').toLocaleDateString('es-AR') : 'Sin cargar';
+  pdf.text('Email: ' + (j.email || '—'), 50, y); y += 15;
+  pdf.text('DNI: ' + (j.dni || 'Sin cargar') + '     Fecha de nacimiento: ' + fNac, 50, y); y += 15;
+  pdf.text('Teléfono: ' + (j.telefono || 'Sin cargar'), 50, y); y += 15;
+  pdf.text('Dirección: ' + (j.direccion || 'Sin cargar'), 50, y); y += 22;
+
+  // Campamentos vividos
+  if ((j.campamentos||[]).length) {
+    saltoDePaginaSiHaceFalta(30 + j.campamentos.length * 14);
+    pdf.setFont('helvetica', 'bold'); pdf.setFontSize(12);
+    pdf.text('Campamentos vividos', 50, y); y += 18;
+    pdf.setFont('helvetica', 'normal'); pdf.setFontSize(10);
+    j.campamentos.slice().sort((a,b)=>(a.fecha||'').localeCompare(b.fecha||'')).forEach(c => {
+      const f = c.fecha ? new Date(c.fecha + 'T00:00:00').toLocaleDateString('es-AR') : '';
+      pdf.text('• ' + c.nombre + (f ? ' — ' + f : ''), 50, y); y += 14;
+    });
+    y += 10;
+  }
+  pdf.setDrawColor(220); pdf.line(40, y, pageW - 40, y); y += 20;
+
   const porRama = j.desarrollo.porRama || {};
   const ramasOrdenadas = Object.keys(porRama);
 
@@ -1965,12 +2153,50 @@ window.descargarHistorialPDF = async () => {
   pdf.save(`Historial-${(j.nombre||'joven').replace(/\s+/g,'-')}.pdf`);
 };
 
-function detectarAndroid() {
-  const ua = navigator.userAgent.toLowerCase();
-  const esAndroid = /android/.test(ua);
-  const standalone = window.matchMedia('(display-mode: standalone)').matches;
-  if (esAndroid && !standalone) document.getElementById('android-banner').style.display = 'block';
+let deferredInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  mostrarBannerInstalacion();
+});
+
+function esStandaloneApp() {
+  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
 }
+function esIOSDispositivo() { return /iPhone|iPad|iPod/i.test(navigator.userAgent); }
+function esMobileDispositivo() { return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent); }
+
+function mostrarBannerInstalacion() {
+  if (esStandaloneApp()) return;
+  if (localStorage.getItem('pj_install_cerrado') === '1') return;
+  if (!esMobileDispositivo()) return;
+  const banner = document.getElementById('android-banner');
+  const btn = document.getElementById('install-banner-btn');
+  const texto = document.getElementById('install-banner-texto');
+  if (esIOSDispositivo()) {
+    texto.textContent = 'Tocá Compartir 📤 y luego "Agregar a inicio"';
+    btn.style.display = 'none';
+  } else {
+    texto.textContent = 'Agregala a tu pantalla de inicio para entrar más rápido';
+    btn.style.display = 'inline-block';
+  }
+  banner.style.display = 'block';
+}
+
+async function instalarComoApp() {
+  if (!deferredInstallPrompt) { alert('Usá el menú del navegador (⋮) → "Agregar a pantalla de inicio"'); return; }
+  deferredInstallPrompt.prompt();
+  await deferredInstallPrompt.userChoice;
+  deferredInstallPrompt = null;
+  document.getElementById('android-banner').style.display = 'none';
+}
+
+function cerrarInstallBanner() {
+  document.getElementById('android-banner').style.display = 'none';
+  localStorage.setItem('pj_install_cerrado', '1');
+}
+
+function detectarAndroid() { mostrarBannerInstalacion(); }
 
 // Mantener avatar del composer sincronizado
 setInterval(() => {
