@@ -1,0 +1,2287 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="PringlesApp">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="application-name" content="PringlesApp">
+<meta name="theme-color" content="#1a3a6b">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="pj-favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="pj-apple-touch-icon.png">
+<title>La Pringles — Portal Jóvenes</title>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Playfair+Display:wght@700&family=Caveat:wght@600;700&display=swap" rel="stylesheet">
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
+    from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+  import { getFirestore, doc, getDoc, setDoc, addDoc, collection,
+    query, orderBy, limit, onSnapshot, serverTimestamp, updateDoc, deleteDoc, getDocs, where }
+    from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+  import { getStorage, ref, uploadBytes, getDownloadURL }
+    from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyAbNlr9T-q9QHosYX2UMziLQ2Qrl_yrQP8",
+    authDomain: "scout-pringles.firebaseapp.com",
+    projectId: "scout-pringles",
+    storageBucket: "scout-pringles.firebasestorage.app",
+    messagingSenderId: "655976644512",
+    appId: "1:655976644512:web:2666d2483351087b866ec5",
+    measurementId: "G-GEKS5046KG"
+  };
+
+  const ADMIN_EMAILS = [
+    "comunicacionespringles@gmail.com",
+    "grupo51@scouts.org.ar",
+    "alan.d.fernandez23@gmail.com"
+  ];
+
+  const RAMA_COLORES = {
+    "Castores":   "#FF6B00",
+    "Manada":     "#FFD600",
+    "Scouts":     "#2E7D32",
+    "Caminantes": "#1565C0",
+    "Rovers":     "#B71C1C"
+  };
+
+  const ROLES_RAMA  = ["Castores","Manada","Scouts","Caminantes","Rovers"];
+  const ROLES_STAFF = ["Dirigente","Colaborador"];
+  const ROL_LABEL   = { Castores:"Castores", Manada:"Manada", Scouts:"Tropa (Unidad Scout)", Caminantes:"Caminantes", Rovers:"Rovers", Dirigente:"Dirigente", Colaborador:"Colaborador" };
+
+  const ETAPAS_POR_RAMA = {
+    Castores:   ["Ambientación","Recolectores","Constructores"],
+    Manada:     ["Pata Tierna","Saltador","Rastreador","Cazador"],
+    Scouts:     ["Pista","Rumbo","Senda","Travesía"],
+    Caminantes: ["Tierra","Aire","Fuego","Agua"],
+    Rovers:     ["Encuentro","Compromiso","Proyección"]
+  };
+
+  const ETAPA_ICONOS = {
+    "Ambientación":"etapa/etapa-ambientacion.png", "Recolectores":"etapa/etapa-recolectores.png", "Constructores":"etapa/etapa-constructores.png",
+    "Pata Tierna":"etapa/etapa-pata-tierna.png", "Saltador":"etapa/etapa-saltador.png", "Rastreador":"etapa/etapa-rastreador.png", "Cazador":"etapa/etapa-cazador.png",
+    "Pista":"etapa/etapa-pista.png", "Rumbo":"etapa/etapa-rumbo.png", "Senda":"etapa/etapa-senda.png", "Travesía":"etapa/etapa-travesia.png",
+    "Tierra":"etapa/etapa-tierra.png", "Aire":"etapa/etapa-aire.png", "Fuego":"etapa/etapa-fuego.png", "Agua":"etapa/etapa-agua.png",
+    "Encuentro":"etapa/etapa-encuentro.png", "Compromiso":"etapa/etapa-compromiso.png", "Proyección":"etapa/etapa-proyeccion.png"
+  };
+
+  const RAMA_LOGO_GRUPO = { Castores:"rama-castores.jpg", Manada:"rama-manada.jpg", Scouts:"rama-tropa.jpg", Caminantes:"rama-caminantes.jpg", Rovers:"rama-rovers.jpg" };
+  const RAMA_SEDE_NOMBRE = { Castores:"Madriguera", Manada:"Cubil", Scouts:"Unidad", Caminantes:"Base", Rovers:"Cueva" };
+  const RAMA_SEDE_ICONO  = { Castores:"🦫", Manada:"🐺", Scouts:"⚜️", Caminantes:"🥾", Rovers:"🧉" };
+
+  // Mismo checklist que usa la Intranet (jovenes/{id}.documentacion), para que lo que se
+  // marque desde ahí se vea reflejado acá, y para que el propio joven sepa qué le falta.
+  const DOCS_REQUERIDOS = ['ficha','historiaClinica','autorizacionImagen','fotoDni','fotoPartida','fotoEncargado','carnetVacunacion','carnetObraSocial','foto4x4'];
+  const DOCS_LABELS = {
+    ficha:'Ficha de inscripción', historiaClinica:'Historia clínica', autorizacionImagen:'Autorización de imagen',
+    fotoDni:'Fotocopia de DNI', fotoPartida:'Fotocopia de Part. de Nacimiento', fotoEncargado:'Fotocopia de Padre/Madre/encargado',
+    carnetVacunacion:'Carnet de vacunación', carnetObraSocial:'Fotocopia de carnet de Obra social (si tiene)', foto4x4:'Fotografía 4x4'
+  };
+
+  window._RAMA_SEDE_NOMBRE = RAMA_SEDE_NOMBRE; window._RAMA_SEDE_ICONO = RAMA_SEDE_ICONO;
+  window._ROLES_RAMA = ROLES_RAMA; window._ROLES_STAFF = ROLES_STAFF; window._ROL_LABEL = ROL_LABEL;
+  window._ETAPAS_POR_RAMA = ETAPAS_POR_RAMA; window._ETAPA_ICONOS = ETAPA_ICONOS; window._RAMA_LOGO_GRUPO = RAMA_LOGO_GRUPO;
+  window._DOCS_REQUERIDOS = DOCS_REQUERIDOS; window._DOCS_LABELS = DOCS_LABELS;
+
+  const app     = initializeApp(firebaseConfig);
+  const auth    = getAuth(app);
+  const db      = getFirestore(app);
+  const storage = getStorage(app);
+
+  let currentUser = null;
+  let userProfile = null;
+
+  window.loginConGoogle = async () => {
+    try {
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
+      await signInWithPopup(auth, provider);
+    } catch(e) { console.error(e); alert("Error al iniciar sesión. Intentá de nuevo."); }
+  };
+
+  window.logout = async () => { await signOut(auth); location.reload(); };
+
+  onAuthStateChanged(auth, async (user) => {
+    if (!user) { showPantalla("pantalla-login"); return; }
+    currentUser = user;
+
+    let isAdmin = ADMIN_EMAILS.includes(user.email);
+    const emailKey = user.email.replace(/\./g, "_");
+    const authSnap = await getDoc(doc(db, "autorizados", emailKey));
+    if (!isAdmin) {
+      const adminDinamicoSnap = await getDoc(doc(db, "administradores_portal", user.email));
+      isAdmin = adminDinamicoSnap.exists();
+    }
+
+    if (!isAdmin && !authSnap.exists()) {
+      showPantalla("pantalla-solicitud");
+      document.getElementById("sol-mail").textContent   = user.email;
+      document.getElementById("sol-input-nombre").value = user.displayName || "";
+      return;
+    }
+
+    const profileRef  = doc(db, "perfiles", user.uid);
+    const profileSnap = await getDoc(profileRef);
+    if (!profileSnap.exists()) {
+      await setDoc(profileRef, {
+        nombre: user.displayName || "", email: user.email,
+        rama: "", fotoPerfil: user.photoURL || "",
+        rol: authSnap.exists() ? (authSnap.data().rol || "") : "",
+        ramaAsignada: "", desarrollo: { porRama: {}, notas: [] },
+        edad: "", isAdmin, creadoEn: serverTimestamp()
+      });
+    }
+    const snap2 = await getDoc(profileRef);
+    userProfile = { ...snap2.data(), uid: user.uid, isAdmin };
+
+    // Si un admin cambió el rol en "autorizados", lo sincronizamos acá
+    if (authSnap.exists() && authSnap.data().rol && authSnap.data().rol !== userProfile.rol) {
+      await updateDoc(profileRef, { rol: authSnap.data().rol });
+      userProfile.rol = authSnap.data().rol;
+    }
+    // Migración: si tenía la estructura vieja (plana), la movemos a porRama[rol]
+    if (!userProfile.desarrollo) userProfile.desarrollo = { porRama: {}, notas: [] };
+    if (!userProfile.desarrollo.porRama) userProfile.desarrollo.porRama = {};
+    if (!userProfile.desarrollo.notas) userProfile.desarrollo.notas = [];
+    if (userProfile.desarrollo.etapas || userProfile.desarrollo.promesa) {
+      const rolViejo = userProfile.rol;
+      if (rolViejo && !userProfile.desarrollo.porRama[rolViejo]) {
+        userProfile.desarrollo.porRama[rolViejo] = {
+          promesa: userProfile.desarrollo.promesa || 0,
+          etapas: userProfile.desarrollo.etapas || {},
+          especialidades: userProfile.desarrollo.especialidades || []
+        };
+      }
+    }
+
+    window._currentUser  = () => currentUser;
+    window._userProfile  = () => userProfile;
+    window._db           = db;
+    window._storage      = storage;
+    window._RAMA_COLORES = RAMA_COLORES;
+
+    renderApp();
+  });
+
+  function showPantalla(id) {
+    document.querySelectorAll(".pantalla").forEach(p => p.style.display = "none");
+    document.getElementById(id).style.display = "flex";
+  }
+
+  function esStaff(rol) { return ROLES_STAFF.includes(rol); }
+
+  function getBordeStyle(rol, rama) {
+    if (esStaff(rol)) return "border:3px solid transparent;background-image:linear-gradient(white,white),linear-gradient(135deg,#1a3a6b,#e6b800,#b01a1a);background-origin:border-box;background-clip:padding-box,border-box;";
+    if (rama && RAMA_COLORES[rama]) return `border:3px solid ${RAMA_COLORES[rama]};`;
+    return "border:3px solid #ccc;";
+  }
+
+  function getSubnombre(rol, ramaAsignada, isAdminFlag) {
+    if (isAdminFlag) return "Administrador General" + (esStaff(rol) || ROLES_RAMA.includes(rol) ? " · " + (ROL_LABEL[rol]||rol) : "");
+    if (esStaff(rol)) return rol + (ramaAsignada ? " · " + (ROL_LABEL[ramaAsignada]||ramaAsignada) : "");
+    if (rol && ROLES_RAMA.includes(rol)) return ROL_LABEL[rol] || rol;
+    return "Sin rol asignado";
+  }
+
+  function renderApp() {
+    showPantalla("pantalla-app");
+    const avatarSrc = userProfile.fotoPerfil ||
+      "https://ui-avatars.com/api/?name=" + encodeURIComponent(userProfile.nombre || "U") + "&background=1a3a6b&color=fff";
+    ["avatar-header","composer-avatar","perfil-foto-actual"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.src = avatarSrc;
+    });
+
+    const nombreDisplay = userProfile.nombre || currentUser.displayName || currentUser.email;
+    document.getElementById("nombre-header").textContent = nombreDisplay;
+    const rol   = userProfile.rol   || "";
+    const rama  = esStaff(rol) ? (userProfile.ramaAsignada || "") : rol;
+    document.getElementById("subnombre-header").textContent = getSubnombre(rol, userProfile.ramaAsignada, userProfile.isAdmin);
+
+    const av = document.getElementById("avatar-header");
+    av.style.backgroundImage = ""; av.style.backgroundOrigin = ""; av.style.backgroundClip = "";
+    av.setAttribute("style", (av.getAttribute("style") || "").replace(/border:[^;]+;?/g,"") + getBordeStyle(rol, rama));
+
+    const navAdmin = document.getElementById("nav-admin");
+    if (navAdmin) navAdmin.style.display = userProfile.isAdmin ? "flex" : "none";
+
+    const navDesarrollo = document.getElementById("nav-desarrollo");
+    if (navDesarrollo) navDesarrollo.style.display = (rol && ROLES_RAMA.includes(rol)) ? "flex" : "none";
+
+    const navJovenes = document.getElementById("nav-jovenes");
+    if (navJovenes) navJovenes.style.display = (userProfile.isAdmin || esStaff(rol)) ? "flex" : "none";
+
+    const navDashboard = document.getElementById("nav-dashboard");
+    if (navDashboard) navDashboard.style.display = (userProfile.isAdmin || esStaff(rol)) ? "flex" : "none";
+
+    window._esStaff = esStaff(rol);
+
+    showTab("mi-rama");
+    detectarAndroid();
+  }
+
+  window.enviarSolicitud = async () => {
+    const nombre = document.getElementById("sol-input-nombre").value.trim();
+    const edad   = document.getElementById("sol-input-edad").value.trim();
+    const rama   = document.getElementById("sol-input-rama").value;
+    if (!nombre || !edad || !rama) { alert("Completá todos los campos."); return; }
+    try {
+      await addDoc(collection(db, "solicitudes"), {
+        nombre, edad, rama,
+        email: currentUser.email,
+        uid:   currentUser.uid,
+        aprobado: false,
+        fecha: serverTimestamp()
+      });
+    } catch(e) { console.error(e); }
+    document.getElementById("sol-enviado").style.display = "block";
+  };
+
+  // Linkify: convierte URLs en hipervínculos
+  function linkify(text) {
+    const urlReg = /(https?:\/\/[^\s]+)/g;
+    return text.replace(urlReg, url => `<a href="${url}" target="_blank" rel="noopener" class="post-link">${url}</a>`);
+  }
+
+  function cargarMuro() {
+    const q = query(collection(db, "muro"), orderBy("fecha", "desc"), limit(30));
+    onSnapshot(q, snap => {
+      const lista = document.getElementById("muro-lista");
+      lista.innerHTML = "";
+      snap.forEach(d => {
+        const data       = d.data();
+        const docId      = d.id;
+        const esDirigente = data.ramaColor === "dirigente";
+        const color      = esDirigente ? "#1a3a6b" : (data.ramaColor || "#1a3a6b");
+        const esPropio   = currentUser && data.uid === currentUser.uid;
+        const esAdmin    = userProfile && userProfile.isAdmin;
+        const puedeModificar = esPropio || esAdmin;
+        const subnombre  = data.subnombre || data.rama || "";
+
+        const borderStyleAttr = esDirigente
+          ? `border:3px solid transparent;background-image:linear-gradient(white,white),linear-gradient(135deg,#1a3a6b,#e6b800,#b01a1a);background-origin:border-box;background-clip:padding-box,border-box;`
+          : `border:2.5px solid ${color};`;
+
+        const div = document.createElement("div");
+        div.className = "post-card";
+        div.id = "post-" + docId;
+        div.innerHTML = `
+          <div class="post-avatar-wrap">
+            <img src="${data.foto || 'https://ui-avatars.com/api/?name='+encodeURIComponent(data.nombre)+'&background=1a3a6b&color=fff'}"
+              class="post-avatar" style="${borderStyleAttr}">
+          </div>
+          <div class="post-body">
+            <div class="post-header">
+              <div class="post-autor">
+                <strong class="post-nombre">${data.nombre}</strong>
+                ${data.nombreReal ? `<span class="post-nombre-real">(${data.nombreReal})</span>` : ""}
+                ${subnombre ? `<span class="post-rama" style="background:${color}20;color:${color}">${subnombre}</span>` : ""}
+              </div>
+              <span class="post-tiempo">${data.fecha ? formatTiempo(data.fecha.toDate()) : ""}</span>
+              ${puedeModificar ? `
+                <div class="post-menu-wrap">
+                  <button class="post-menu-btn" onclick="togglePostMenu('${docId}')">⋯</button>
+                  <div class="post-menu" id="menu-${docId}">
+                    ${esPropio ? `<button onclick="editarPost('${docId}', \`${data.texto.replace(/`/g,"'")}\`)">✏️ Editar</button>` : ""}
+                    <button onclick="eliminarPost('${docId}')" style="color:#b01a1a">🗑️ Eliminar</button>
+                  </div>
+                </div>` : ""}
+            </div>
+            <div class="post-texto-wrap" id="texto-${docId}">
+              <p class="post-texto">${linkify(data.texto)}</p>
+            </div>
+            ${data.imagenUrl ? `<img src="${data.imagenUrl}" class="post-imagen">` : ""}
+          </div>`;
+        lista.appendChild(div);
+      });
+    });
+  }
+
+  window.togglePostMenu = (id) => {
+    document.querySelectorAll(".post-menu").forEach(m => {
+      if (m.id !== "menu-" + id) m.classList.remove("open");
+    });
+    document.getElementById("menu-" + id).classList.toggle("open");
+  };
+
+  window.eliminarPost = async (id) => {
+    if (!confirm("¿Eliminar esta publicación?")) return;
+    await deleteDoc(doc(db, "muro", id));
+  };
+
+  window.editarPost = (id, textoActual) => {
+    document.getElementById("menu-" + id).classList.remove("open");
+    const wrap = document.getElementById("texto-" + id);
+    wrap.innerHTML = `
+      <textarea class="edit-textarea" id="edit-${id}" maxlength="150">${textoActual}</textarea>
+      <div class="edit-footer">
+        <span class="edit-contador" id="edit-cnt-${id}">${textoActual.length}/150</span>
+        <button class="edit-cancel" onclick="cancelarEdicion('${id}', \`${textoActual.replace(/`/g,"'")}\`)">Cancelar</button>
+        <button class="edit-save" onclick="guardarEdicion('${id}')">Guardar</button>
+      </div>`;
+    document.getElementById("edit-" + id).oninput = () => {
+      document.getElementById("edit-cnt-" + id).textContent =
+        document.getElementById("edit-" + id).value.length + "/150";
+    };
+  };
+
+  window.cancelarEdicion = (id, textoOriginal) => {
+    document.getElementById("texto-" + id).innerHTML =
+      `<p class="post-texto">${linkify(textoOriginal)}</p>`;
+  };
+
+  window.guardarEdicion = async (id) => {
+    const nuevoTexto = document.getElementById("edit-" + id).value.trim();
+    if (!nuevoTexto) { alert("El texto no puede estar vacío."); return; }
+    if (nuevoTexto.length > 150) { alert("Máximo 150 caracteres."); return; }
+    await updateDoc(doc(db, "muro", id), { texto: nuevoTexto, editado: true });
+  };
+
+  function formatTiempo(date) {
+    const diff = Math.floor((Date.now() - date) / 60000);
+    if (diff < 1) return "ahora";
+    if (diff < 60) return `hace ${diff}m`;
+    if (diff < 1440) return `hace ${Math.floor(diff/60)}h`;
+    return date.toLocaleDateString("es-AR");
+  }
+
+  window.publicarPost = async () => {
+    const texto = document.getElementById("muro-input").value.trim();
+    if (!texto) { alert("Escribí algo antes de publicar."); return; }
+    if (texto.length > 150) { alert("Máximo 150 caracteres."); return; }
+    const esDirigente = parseInt(userProfile.edad) > 21;
+    const ramaColor   = esDirigente ? "dirigente" : (RAMA_COLORES[userProfile.rama] || "#1a3a6b");
+    const subnombre   = getSubnombre(userProfile.edad, userProfile.rama, userProfile.sector);
+    await addDoc(collection(db, "muro"), {
+      texto,
+      nombre:     userProfile.nombre || currentUser.displayName || currentUser.email,
+      nombreReal: currentUser.displayName || "",
+      foto:       userProfile.fotoPerfil || "",
+      rama:       userProfile.rama || "",
+      sector:     userProfile.sector || "",
+      subnombre,
+      ramaColor,
+      uid:        currentUser.uid,
+      fecha:      serverTimestamp()
+    });
+    document.getElementById("muro-input").value = "";
+    document.getElementById("muro-contador").textContent = "0/150";
+    document.getElementById("emoji-picker").classList.remove("open");
+  };
+
+  window.contarChars = () => {
+    const val = document.getElementById("muro-input").value;
+    const cnt = document.getElementById("muro-contador");
+    cnt.textContent = val.length + "/150";
+    cnt.style.color = val.length > 150 ? "red" : "";
+  };
+
+  // ---- PANEL ADMIN ----
+  const ROLES_TODOS = [...ROLES_STAFF, ...ROLES_RAMA];
+
+  function opcionesRol(seleccionado) {
+    return ROLES_TODOS.map(r => `<option value="${r}" ${r===seleccionado?'selected':''}>${ROL_LABEL[r]||r}</option>`).join('');
+  }
+
+  window.cargarSolicitudesAdmin = () => {
+    const q = query(collection(db, "solicitudes"), orderBy("fecha", "desc"), limit(50));
+    onSnapshot(q, snap => {
+      const lista = document.getElementById("admin-solicitudes-lista");
+      if (!lista) return;
+      lista.innerHTML = "";
+      if (snap.empty) {
+        lista.innerHTML = `<div class="admin-empty">✅ No hay solicitudes pendientes.</div>`;
+        return;
+      }
+      snap.forEach(d => {
+        const data = d.data();
+        const docId = d.id;
+        const aprobado = data.aprobado || false;
+        const div = document.createElement("div");
+        div.className = "solicitud-admin-card" + (aprobado ? " aprobada" : "");
+        div.innerHTML = `
+          <div class="sol-admin-info">
+            <strong>${data.nombre}</strong>
+            <span class="sol-admin-mail">${data.email}</span>
+            <div class="sol-admin-meta">
+              <span>🎂 ${data.edad} años</span>
+              <span>⚜️ Pidió: ${data.rama}</span>
+              <span class="sol-fecha">${data.fecha ? data.fecha.toDate().toLocaleDateString("es-AR") : ""}</span>
+            </div>
+          </div>
+          <div class="sol-admin-acciones">
+            <select id="rol-select-${docId}" class="rol-select-admin">${opcionesRol(data.rama)}</select>
+            ${aprobado
+              ? `<span class="badge-aprobado">✅ Aprobado</span>
+                 <button class="btn-aprobar" onclick="actualizarRolSolicitud('${docId}','${data.email}','${data.uid||''}')">💾 Actualizar rol</button>
+                 <button class="btn-revocar" onclick="revocarAcceso('${docId}','${data.email}')">Revocar</button>`
+              : `<button class="btn-aprobar" onclick="aprobarAcceso('${docId}','${data.email}','${data.nombre}')">✅ Aprobar</button>
+                 <button class="btn-rechazar" onclick="rechazarSolicitud('${docId}')">❌ Rechazar</button>`
+            }
+          </div>`;
+        lista.appendChild(div);
+      });
+    });
+  };
+
+  window.aprobarAcceso = async (docId, email, nombre) => {
+    const rol = document.getElementById('rol-select-' + docId).value;
+    if (!confirm(`¿Aprobar acceso a ${nombre} (${email}) como ${ROL_LABEL[rol]||rol}?`)) return;
+    const emailKey = email.replace(/\./g, "_");
+    await setDoc(doc(db, "autorizados", emailKey), { email, nombre, rol, aprobadoEn: serverTimestamp() });
+    await updateDoc(doc(db, "solicitudes", docId), { aprobado: true, rol, aprobadoEn: serverTimestamp() });
+    alert(`✅ Acceso aprobado para ${nombre} como ${ROL_LABEL[rol]||rol}.`);
+  };
+
+  window.actualizarRolSolicitud = async (docId, email, uid) => {
+    const rol = document.getElementById('rol-select-' + docId).value;
+    const emailKey = email.replace(/\./g, "_");
+    await setDoc(doc(db, "autorizados", emailKey), { rol }, { merge: true });
+    await updateDoc(doc(db, "solicitudes", docId), { rol });
+    if (uid) {
+      try { await updateDoc(doc(db, "perfiles", uid), { rol }); }
+      catch(e) { console.error("El perfil todavía no existe, se va a sincronizar en el próximo login:", e); }
+    }
+    alert(`✅ Rol actualizado a ${ROL_LABEL[rol]||rol}.`);
+  };
+
+  window.revocarAcceso = async (docId, email) => {
+    if (!confirm(`¿Revocar acceso de ${email}?`)) return;
+    const emailKey = email.replace(/\./g, "_");
+    await deleteDoc(doc(db, "autorizados", emailKey));
+    await updateDoc(doc(db, "solicitudes", docId), { aprobado: false });
+    alert("Acceso revocado.");
+  };
+
+  window.rechazarSolicitud = async (docId) => {
+    if (!confirm("¿Eliminar esta solicitud?")) return;
+    await deleteDoc(doc(db, "solicitudes", docId));
+  };
+
+  window.otorgarAdminPortalUI = async () => {
+    const email = document.getElementById("admin-nuevo-email").value.trim().toLowerCase();
+    if (!email || !email.includes("@")) { alert("Ingresá un email válido."); return; }
+    if (ADMIN_EMAILS.includes(email)) { alert("Ese mail ya es admin de arranque, no hace falta agregarlo."); return; }
+    if (!confirm(`¿Dar permisos de administrador general a ${email}?`)) return;
+    await window.otorgarAdminPortal(email);
+    document.getElementById("admin-nuevo-email").value = "";
+    alert("✅ Listo. Va a tener acceso admin la próxima vez que entre.");
+  };
+
+  window.cargarAdminsDinamicos = () => {
+    window.cargarAdminsDinamicosLista(admins => {
+      const wrap = document.getElementById("admin-lista-dinamicos");
+      if (!wrap) return;
+      const todos = [
+        ...ADMIN_EMAILS.map(e => ({ email: e, fijo: true })),
+        ...admins.filter(a => !ADMIN_EMAILS.includes(a.email))
+      ];
+      wrap.innerHTML = todos.map(a => `
+        <div class="perm-user-row" style="padding:10px 0;border-bottom:1px solid var(--fondo)">
+          <div class="perm-user-info"><span style="font-size:13px;font-weight:600">${a.email}</span></div>
+          ${a.fijo
+            ? `<span class="perm-locked">Fijo</span>`
+            : `<button class="btn-revocar" onclick="revocarAdminPortalUI('${a.email}')">Quitar admin</button>`}
+        </div>`).join('');
+    });
+  };
+
+  window.revocarAdminPortalUI = async (email) => {
+    if (!confirm(`¿Quitar el acceso admin de ${email}?`)) return;
+    await window.revocarAdminPortal(email);
+  };
+
+  window.guardarPerfil = async () => {
+    const nombre = document.getElementById("perfil-nombre").value.trim();
+    const edad   = document.getElementById("perfil-edad").value.trim();
+    if (!nombre) { alert("El nombre no puede estar vacío."); return; }
+
+    const updates = { nombre, edad };
+    if (esStaff(userProfile.rol)) {
+      const ramaSel = document.getElementById("perfil-rama-asignada");
+      if (ramaSel) updates.ramaAsignada = ramaSel.value;
+    }
+    await updateDoc(doc(db, "perfiles", currentUser.uid), updates);
+    userProfile = { ...userProfile, ...updates };
+
+    // Actualizar todos los posts del muro con el nuevo nombre/color
+    const q2 = query(collection(db, "muro"), orderBy("fecha", "desc"), limit(100));
+    const snap = await getDocs(q2);
+    const rol = userProfile.rol || "";
+    const ramaColor = esStaff(rol) ? "dirigente" : (RAMA_COLORES[rol] || "#1a3a6b");
+    const subnombrePost = getSubnombre(rol, userProfile.ramaAsignada);
+    for (const d of snap.docs) {
+      if (d.data().uid === currentUser.uid) {
+        await updateDoc(doc(db, "muro", d.id), { nombre, ramaColor, subnombre: subnombrePost });
+      }
+    }
+
+    // Botón a gris (guardado)
+    const btn = document.getElementById("btn-guardar-perfil");
+    if (btn) {
+      btn.style.background = "#aaa";
+      btn.style.cursor = "not-allowed";
+      btn.textContent = "✅ Guardado";
+    }
+    renderApp();
+    cargarDatosPerfil();
+  };
+
+  // ============ DESARROLLO PERSONAL (logros tipo trofeo) ============
+  window.obtenerJovenesPorRama = async (rama) => {
+    try {
+      const q = query(collection(db, "perfiles"), where("rol", "==", rama));
+      const snap = await getDocs(q);
+      const lista = snap.docs.map(d => ({ uid: d.id, ...d.data() }));
+      lista.sort((a, b) => (a.nombre || "").localeCompare(b.nombre || ""));
+      return lista;
+    } catch (e) { console.error("obtenerJovenesPorRama:", e); return []; }
+  };
+
+  // Trae SIEMPRE el dato más fresco de un perfil puntual (evita mostrarle al dirigente
+  // un checklist/desarrollo desactualizado si se cambió desde la Intranet mientras tanto).
+  window.obtenerPerfilFresco = async (uid) => {
+    try {
+      const snap = await getDoc(doc(db, "perfiles", uid));
+      return snap.exists() ? { uid, ...snap.data() } : null;
+    } catch (e) { console.error("obtenerPerfilFresco:", e); return null; }
+  };
+
+  // Lo mismo pero para el PROPIO usuario logueado: así "Mi Desarrollo" y "Mi Perfil"
+  // siempre muestran lo último, aunque un dirigente lo haya modificado recién.
+  window.refrescarMiPerfil = async () => {
+    if (!currentUser) return userProfile;
+    try {
+      const snap = await getDoc(doc(db, "perfiles", currentUser.uid));
+      if (snap.exists()) {
+        userProfile = { ...snap.data(), uid: currentUser.uid, isAdmin: userProfile ? userProfile.isAdmin : false };
+      }
+    } catch (e) { console.error("refrescarMiPerfil:", e); }
+    return userProfile;
+  };
+
+  window.guardarDesarrolloJoven = async (uid, desarrollo) => {
+    await updateDoc(doc(db, "perfiles", uid), { desarrollo });
+  };
+
+  window.cambiarRolJoven = async (uid, nuevaRama, email) => {
+    await updateDoc(doc(db, "perfiles", uid), { rol: nuevaRama });
+    if (email) {
+      const emailKey = email.replace(/\./g, "_");
+      await setDoc(doc(db, "autorizados", emailKey), { rol: nuevaRama }, { merge: true });
+    }
+  };
+
+  window.eliminarPerfilJoven = async (uid, email) => {
+    if (!userProfile || !userProfile.isAdmin) { alert("Solo un administrador puede eliminar perfiles."); return; }
+    await deleteDoc(doc(db, "perfiles", uid));
+    if (email) {
+      const emailKey = email.replace(/\./g, "_");
+      await deleteDoc(doc(db, "autorizados", emailKey)).catch(()=>{});
+    }
+  };
+
+  // ============ DATOS PERSONALES Y DOCUMENTACIÓN ============
+  window.guardarDatosPersonalesJoven = async (uid, datos) => {
+    await updateDoc(doc(db, "perfiles", uid), datos);
+  };
+
+  window.guardarDocumentacionJoven = async (uid, documentacion) => {
+    if (!userProfile || !userProfile.isAdmin) { alert("Solo administradores pueden marcar documentación."); return; }
+    await updateDoc(doc(db, "perfiles", uid), { documentacion });
+  };
+
+  // ============ CAMPAMENTOS VIVIDOS ============
+  window.agregarCampamentoJoven = async (uid, campamentosActuales) => {
+    await updateDoc(doc(db, "perfiles", uid), { campamentos: campamentosActuales });
+  };
+
+  // ============ HISTORIAL DE PROGRESO (para el dashboard) ============
+  window.registrarProgresoHistorial = async (joven) => {
+    const rol = joven.rol;
+    const d = joven.desarrollo.porRama[rol];
+    if (!d) return;
+    const entradas = [];
+    entradas.push({ tipo: "Promesa", pct: d.promesa || 0 });
+    (ETAPAS_POR_RAMA[rol] || []).forEach(et => entradas.push({ tipo: et, pct: (d.etapas && d.etapas[et]) || 0 }));
+    (d.especialidades || []).forEach(e => entradas.push({ tipo: e.nombre, pct: e.pct || 0 }));
+    for (const en of entradas) {
+      await addDoc(collection(db, "progreso_historial"), {
+        uid: joven.uid, nombre: joven.nombre, rama: rol,
+        etapa: en.tipo, pct: en.pct,
+        autor: userProfile.nombre || "", fecha: serverTimestamp()
+      });
+    }
+  };
+
+  window.obtenerHistorialProgreso = async (filtros) => {
+    try {
+      let condiciones = [];
+      if (filtros.rama) condiciones.push(where("rama", "==", filtros.rama));
+      if (filtros.uid)  condiciones.push(where("uid", "==", filtros.uid));
+      const q = query(collection(db, "progreso_historial"), ...condiciones);
+      const snap = await getDocs(q);
+      const lista = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      lista.sort((a, b) => (a.fecha?.toMillis?.() || 0) - (b.fecha?.toMillis?.() || 0));
+      return lista;
+    } catch (e) { console.error("obtenerHistorialProgreso:", e); return []; }
+  };
+
+  // ============ ADMINISTRADORES DINÁMICOS ============
+  window.otorgarAdminPortal = async (email) => {
+    await setDoc(doc(db, "administradores_portal", email), {
+      email, otorgadoPor: currentUser.email, otorgadoEn: serverTimestamp()
+    });
+  };
+  window.revocarAdminPortal = async (email) => {
+    await deleteDoc(doc(db, "administradores_portal", email));
+  };
+  window.cargarAdminsDinamicosLista = (cb) => {
+    return onSnapshot(collection(db, "administradores_portal"), snap => cb(snap.docs.map(d => ({ email: d.id, ...d.data() }))));
+  };
+
+  // ============ MURO POR RAMA (privado) ============
+  window.cargarMuroRama = (rama, cb) => {
+    const q = query(collection(db, "muro_rama"), where("rama", "==", rama));
+    return onSnapshot(q, snap => {
+      let posts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      posts.sort((a, b) => (b.fecha?.toMillis?.() || 0) - (a.fecha?.toMillis?.() || 0));
+      cb(posts.slice(0, 50));
+    }, err => { console.error("cargarMuroRama:", err); cb([]); });
+  };
+
+  window.publicarPostRama = async (rama, texto) => {
+    if (!texto.trim()) { alert("Escribí algo antes de publicar."); return; }
+    if (texto.length > 150) { alert("Máximo 150 caracteres."); return; }
+    const rol = userProfile.rol || "";
+    const esD = esStaff(rol);
+    const color = (esD || userProfile.isAdmin) ? "dirigente" : (RAMA_COLORES[rol] || "#1a3a6b");
+    await addDoc(collection(db, "muro_rama"), {
+      texto, rama,
+      nombre: userProfile.nombre || currentUser.displayName || currentUser.email,
+      foto: userProfile.fotoPerfil || "",
+      subnombre: getSubnombre(rol, userProfile.ramaAsignada, userProfile.isAdmin),
+      ramaColor: color,
+      uid: currentUser.uid,
+      fecha: serverTimestamp()
+    });
+  };
+
+  window.eliminarPostRama = async (id) => {
+    if (!confirm("¿Eliminar esta publicación?")) return;
+    await deleteDoc(doc(db, "muro_rama", id));
+  };
+
+  window.puedeAccederCarpeta = (rama) => {
+    if (!userProfile) return false;
+    if (userProfile.isAdmin) return true;
+    const rol = userProfile.rol || "";
+    if (rol === "Colaborador") return true;
+    if (rol === "Dirigente") return userProfile.ramaAsignada === rama;
+    return rol === rama;
+  };
+
+  window.solicitarPermisoCarpeta = (rama) => {
+    const body = `Nombre: ${userProfile.nombre||""}%0AMail: ${currentUser.email}%0AEdad: ${userProfile.edad||""}%0ARama: ${rama}`;
+    window.open(`mailto:comunicacionespringles@gmail.com,grupo51@scouts.org.ar?subject=Solicitud%20acceso%20carpeta%20${encodeURIComponent(rama)}&body=${body}`, "_blank");
+    alert("✉️ Se abrió tu correo para enviar la solicitud.");
+  };
+
+  // Exponer getDocs para guardarPerfil
+  window._getDocs = getDocs;
+  window._query   = query;
+  window._collection = collection;
+  window._orderBy = orderBy;
+  window._limit   = limit;
+  window._doc     = doc;
+  window._updateDoc = updateDoc;
+  window._db_ref  = db;
+</script>
+
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --azul:#1a3a6b; --azul-med:#2a5298; --azul-cl:#d0dff5;
+  --rojo:#b01a1a; --amarillo:#e6b800;
+  --fondo:#f0f4ff; --white:#ffffff;
+  --text:#0e1a2c; --text-sec:#4a5a7b;
+  --shadow:0 2px 16px rgba(14,26,44,0.10); --radius:14px;
+}
+body { font-family:'Nunito',sans-serif; background:var(--fondo); color:var(--text); min-height:100vh; }
+.pantalla { display:none; min-height:100vh; }
+
+/* LOGIN */
+#pantalla-login {
+  flex-direction:column; align-items:center; justify-content:center;
+  background:linear-gradient(145deg,#0d2247 0%,#1a3a6b 60%,#2a5298 100%);
+  padding:24px; text-align:center;
+}
+.login-logo {
+  width:120px; height:120px; border-radius:50%; background:white;
+  border:4px solid var(--amarillo); display:flex; align-items:center;
+  justify-content:center; overflow:hidden; margin:0 auto 20px;
+  box-shadow:0 4px 24px rgba(0,0,0,0.35);
+}
+.login-logo img { width:100%; height:100%; object-fit:cover; }
+#pantalla-login h1 { font-family:'Playfair Display',serif; color:white; font-size:28px; margin-bottom:6px; }
+#pantalla-login p  { color:rgba(255,255,255,0.7); font-size:14px; margin-bottom:32px; line-height:1.6; }
+.btn-google {
+  display:inline-flex; align-items:center; gap:12px; background:white; color:#333;
+  padding:14px 28px; border-radius:50px; font-size:15px; font-weight:700;
+  border:none; cursor:pointer; box-shadow:0 4px 16px rgba(0,0,0,0.2);
+  transition:transform 0.15s; font-family:'Nunito',sans-serif;
+}
+.btn-google:hover { transform:translateY(-2px); }
+.btn-google img { width:22px; }
+.login-info { margin-top:22px; color:rgba(255,255,255,0.5); font-size:12px; max-width:300px; line-height:1.6; }
+
+/* SOLICITUD */
+#pantalla-solicitud { flex-direction:column; align-items:center; justify-content:center; background:var(--fondo); padding:20px; }
+.solicitud-card { background:white; border-radius:var(--radius); padding:32px; max-width:460px; width:100%; box-shadow:var(--shadow); text-align:center; }
+.solicitud-card h2 { font-size:20px; margin-bottom:8px; color:var(--azul); }
+.solicitud-card > p { font-size:13px; color:var(--text-sec); margin-bottom:20px; line-height:1.6; }
+.form-group { text-align:left; margin-bottom:14px; }
+.form-group label { font-size:11px; font-weight:700; color:var(--text-sec); display:block; margin-bottom:4px; text-transform:uppercase; letter-spacing:0.04em; }
+.form-group input, .form-group select { width:100%; padding:10px 14px; border-radius:8px; border:1.5px solid var(--azul-cl); font-size:14px; font-family:'Nunito',sans-serif; }
+.btn-primary { background:var(--azul); color:white; border:none; border-radius:10px; padding:12px 24px; font-size:14px; font-weight:700; cursor:pointer; width:100%; margin-top:6px; font-family:'Nunito',sans-serif; transition:background 0.15s; }
+.btn-primary:hover { background:var(--azul-med); }
+#sol-enviado { display:none; margin-top:14px; background:#e8f5e9; color:#2e7d32; border-radius:8px; padding:12px; font-size:14px; font-weight:600; }
+
+/* APP */
+#pantalla-app { flex-direction:column; }
+
+/* HEADER */
+.app-header {
+  background:var(--azul); color:white; padding:10px 14px;
+  display:flex; align-items:center; gap:10px;
+  position:sticky; top:0; z-index:200;
+  box-shadow:0 2px 12px rgba(0,0,0,0.2); position:relative;
+}
+.app-header::after { content:''; position:absolute; bottom:0; left:0; right:0; height:3px; background:linear-gradient(90deg,#b01a1a,#e6b800,#b01a1a); }
+.header-logo { width:36px; height:36px; border-radius:50%; background:white; overflow:hidden; border:2px solid var(--amarillo); flex-shrink:0; }
+.header-logo img { width:100%; height:100%; object-fit:cover; }
+.header-title { font-family:'Playfair Display',serif; font-size:15px; flex:1; line-height:1.2; }
+.header-title span { font-family:'Nunito',sans-serif; font-size:10px; opacity:0.65; font-weight:400; display:block; }
+.header-user { text-align:right; }
+#nombre-header { font-size:12px; font-weight:700; display:block; }
+#subnombre-header { font-size:10px; opacity:0.7; }
+#avatar-header { width:34px; height:34px; border-radius:50%; object-fit:cover; border:2px solid #ccc; cursor:pointer; flex-shrink:0; }
+.btn-logout { background:none; border:1px solid rgba(255,255,255,0.3); color:white; border-radius:6px; padding:3px 8px; font-size:10px; cursor:pointer; font-family:'Nunito',sans-serif; }
+
+/* REDES SOCIALES EN HEADER */
+.header-redes-wrap { display:flex; flex-direction:column; align-items:center; gap:2px; }
+.header-redes-cartel { font-family:'Caveat',cursive; font-size:15px; font-weight:700; color:var(--amarillo); line-height:1; transform:rotate(-3deg); white-space:nowrap; }
+.header-redes {
+  display:flex; align-items:center; gap:6px;
+}
+.header-redes a {
+  display:flex; align-items:center; justify-content:center;
+  width:28px; height:28px; border-radius:6px;
+  background:rgba(255,255,255,0.12); transition:background 0.15s;
+  text-decoration:none;
+}
+.header-redes a:hover { background:rgba(255,255,255,0.25); }
+.header-redes svg { width:16px; height:16px; fill:white; }
+
+/* NAV */
+.nav-bottom { position:fixed; bottom:0; left:0; right:0; background:white; border-top:1px solid #e0e8f5; display:flex; z-index:200; box-shadow:0 -2px 12px rgba(14,26,44,0.08); }
+.nav-item { flex:1; display:flex; flex-direction:column; align-items:center; padding:7px 2px 9px; background:none; border:none; cursor:pointer; font-family:'Nunito',sans-serif; color:var(--text-sec); font-size:9px; font-weight:700; gap:1px; transition:color 0.15s; }
+.nav-item .nav-icon { font-size:20px; }
+.nav-item.active { color:var(--azul); }
+
+/* CONTENIDO */
+.app-content { flex:1; padding:14px 14px 78px; max-width:680px; margin:0 auto; width:100%; }
+.tab-panel { display:none; }
+.tab-panel.active { display:block; }
+
+/* ANDROID BANNER */
+.app-banner { background:linear-gradient(135deg,#1a3a6b,#2a5298); color:white; border-radius:var(--radius); padding:14px 16px; margin-bottom:14px; display:none; }
+.app-banner h3 { font-size:14px; margin-bottom:3px; }
+.app-banner p  { font-size:12px; opacity:0.8; margin-bottom:10px; }
+.app-banner button { background:var(--amarillo); color:var(--azul); border:none; border-radius:7px; padding:7px 14px; font-size:12px; font-weight:700; cursor:pointer; font-family:'Nunito',sans-serif; }
+
+/* MURO */
+.muro-composer { background:white; border-radius:var(--radius); box-shadow:var(--shadow); padding:14px; margin-bottom:14px; }
+.muro-composer-header { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+.composer-avatar { width:38px; height:38px; border-radius:50%; object-fit:cover; flex-shrink:0; border:2px solid var(--azul-cl); }
+.muro-composer-header span { font-size:13px; color:var(--text-sec); font-weight:600; }
+.muro-composer textarea { width:100%; border:1.5px solid var(--azul-cl); border-radius:10px; padding:10px 12px; font-family:'Nunito',sans-serif; font-size:14px; resize:none; height:68px; color:var(--text); }
+.muro-composer-footer { display:flex; align-items:center; gap:6px; margin-top:8px; }
+.muro-contador { font-size:11px; color:var(--text-sec); margin-right:auto; }
+.btn-emoji { background:none; border:none; font-size:20px; cursor:pointer; }
+#muro-img-preview { max-width:100%; border-radius:10px; margin-top:8px; display:none; }
+.btn-publicar { background:var(--azul); color:white; border:none; border-radius:8px; padding:8px 16px; font-size:13px; font-weight:700; cursor:pointer; font-family:'Nunito',sans-serif; }
+.emoji-picker { display:none; flex-wrap:wrap; gap:4px; padding:8px; background:white; border:1px solid var(--azul-cl); border-radius:10px; margin-top:6px; }
+.emoji-picker.open { display:flex; }
+.emoji-btn { background:none; border:none; font-size:20px; cursor:pointer; }
+
+/* POSTS */
+.post-card { background:white; border-radius:var(--radius); box-shadow:var(--shadow); padding:12px; margin-bottom:10px; display:flex; gap:10px; }
+.post-avatar { width:40px; height:40px; border-radius:50%; object-fit:cover; border:2.5px solid #ccc; flex-shrink:0; }
+.post-body { flex:1; min-width:0; }
+.post-header { display:flex; align-items:center; gap:5px; flex-wrap:wrap; margin-bottom:4px; }
+.post-header strong { font-size:13px; }
+.post-nombre-real { font-size:11px; color:var(--text-sec); font-weight:400; margin-left:2px; }
+.post-rama { font-size:10px; font-weight:700; padding:1px 7px; border-radius:8px; }
+.post-tiempo { font-size:10px; color:var(--text-sec); margin-left:auto; }
+.post-texto { font-size:13px; line-height:1.5; word-break:break-word; }
+.post-link { color:var(--azul-med); text-decoration:underline; word-break:break-all; }
+.post-imagen { max-width:100%; border-radius:8px; margin-top:8px; }
+
+/* RAMAS */
+.ramas-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.rama-card { background:white; border-radius:var(--radius); box-shadow:var(--shadow); overflow:hidden; cursor:pointer; transition:transform 0.15s; border-top:4px solid #ccc; }
+.rama-card:hover { transform:translateY(-2px); }
+.rama-card-inner { padding:12px; }
+.rama-card-header { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+.rama-personaje { width:46px; height:46px; object-fit:contain; flex-shrink:0; }
+.rama-personaje-emoji { width:46px; height:46px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:24px; flex-shrink:0; }
+.rama-card h3 { font-size:13px; font-weight:800; line-height:1.2; }
+.rama-card .rama-edad { font-size:10px; color:var(--text-sec); font-weight:600; margin-top:1px; }
+.rama-card p { font-size:11px; color:var(--text-sec); line-height:1.4; }
+.btn-volver { background:none; border:none; color:var(--azul); font-size:14px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px; margin-bottom:14px; font-family:'Nunito',sans-serif; padding:0; }
+.rama-detalle-header { background:white; border-radius:var(--radius); padding:18px; margin-bottom:12px; box-shadow:var(--shadow); display:flex; align-items:center; gap:14px; }
+.rama-detalle-personaje { width:76px; height:76px; object-fit:contain; }
+.rama-detalle-emoji { width:76px; height:76px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:38px; }
+.rama-detalle-info h2 { font-size:18px; font-weight:800; }
+.rama-detalle-info .rama-nombre-grupo { font-size:12px; color:var(--text-sec); margin-top:2px; }
+.rama-edad-badge { display:inline-block; margin-top:6px; font-size:11px; font-weight:700; padding:3px 10px; border-radius:10px; color:white; }
+.info-card { background:white; border-radius:var(--radius); padding:14px; margin-bottom:10px; box-shadow:var(--shadow); }
+.info-card h4 { font-size:11px; font-weight:800; color:var(--text-sec); margin-bottom:6px; text-transform:uppercase; letter-spacing:0.05em; }
+.info-card p { font-size:13px; line-height:1.6; }
+.btn-carpeta { width:100%; padding:13px; border-radius:10px; border:none; font-size:13px; font-weight:700; cursor:pointer; font-family:'Nunito',sans-serif; display:flex; align-items:center; justify-content:center; gap:8px; transition:opacity 0.15s; }
+.btn-carpeta:hover { opacity:0.88; }
+
+/* IFRAMES */
+.calendario-wrap iframe { width:100%; border:none; border-radius:var(--radius); display:block; }
+.drive-wrap iframe { width:100%; height:460px; border:none; border-radius:var(--radius); display:block; }
+
+/* PERFIL */
+.perfil-card { background:white; border-radius:var(--radius); padding:22px; box-shadow:var(--shadow); }
+.perfil-foto-wrap { text-align:center; margin-bottom:18px; }
+.perfil-foto-actual { width:88px; height:88px; border-radius:50%; object-fit:cover; border:3px solid var(--azul-cl); margin:0 auto 10px; display:block; }
+.perfil-form-group { margin-bottom:14px; }
+.perfil-form-group label { font-size:11px; font-weight:700; color:var(--text-sec); display:block; margin-bottom:4px; text-transform:uppercase; letter-spacing:0.04em; }
+.perfil-form-group input, .perfil-form-group select { width:100%; padding:10px 14px; border-radius:8px; border:1.5px solid var(--azul-cl); font-size:14px; font-family:'Nunito',sans-serif; }
+.rama-preview { display:flex; align-items:center; gap:8px; margin-top:8px; }
+.rama-color-dot { width:16px; height:16px; border-radius:50%; flex-shrink:0; }
+
+/* POST MENU */
+.post-menu-wrap { position:relative; margin-left:auto; }
+.post-menu-btn { background:none; border:none; font-size:18px; cursor:pointer; color:var(--text-sec); padding:0 4px; line-height:1; font-weight:700; }
+.post-menu { display:none; position:absolute; right:0; top:24px; background:white; border-radius:10px; box-shadow:0 4px 20px rgba(14,26,44,0.15); border:1px solid var(--azul-cl); min-width:140px; z-index:50; overflow:hidden; }
+.post-menu.open { display:block; }
+.post-menu button { display:block; width:100%; padding:10px 16px; background:none; border:none; text-align:left; font-size:13px; font-weight:600; cursor:pointer; font-family:'Nunito',sans-serif; }
+.post-menu button:hover { background:var(--fondo); }
+
+/* EDICIÓN INLINE */
+.edit-textarea { width:100%; border:1.5px solid var(--azul-cl); border-radius:8px; padding:8px 10px; font-family:'Nunito',sans-serif; font-size:13px; resize:none; height:60px; }
+.edit-footer { display:flex; align-items:center; gap:6px; margin-top:6px; }
+.edit-contador { font-size:11px; color:var(--text-sec); margin-right:auto; }
+.edit-cancel { background:none; border:1px solid #ccc; border-radius:6px; padding:5px 12px; font-size:12px; font-weight:700; cursor:pointer; font-family:'Nunito',sans-serif; }
+.edit-save { background:var(--azul); color:white; border:none; border-radius:6px; padding:5px 12px; font-size:12px; font-weight:700; cursor:pointer; font-family:'Nunito',sans-serif; }
+
+/* ADMIN PANEL */
+.admin-section-title { font-family:'Playfair Display',serif; font-size:20px; font-weight:700; margin-bottom:6px; color:var(--rojo); }
+.admin-subtitle { font-size:13px; color:var(--text-sec); margin-bottom:16px; }
+.solicitud-admin-card { background:white; border-radius:var(--radius); box-shadow:var(--shadow); padding:14px 16px; margin-bottom:10px; border-left:4px solid var(--azul); display:flex; align-items:flex-start; gap:12px; flex-wrap:wrap; }
+.solicitud-admin-card.aprobada { border-left-color:#2e7d32; background:#f9fff9; }
+.sol-admin-info { flex:1; min-width:0; }
+.sol-admin-info strong { font-size:15px; display:block; margin-bottom:2px; }
+.sol-admin-mail { font-size:12px; color:var(--text-sec); display:block; margin-bottom:6px; word-break:break-all; }
+.sol-admin-meta { display:flex; gap:10px; flex-wrap:wrap; }
+.sol-admin-meta span { font-size:12px; background:var(--fondo); padding:2px 8px; border-radius:6px; font-weight:600; }
+.sol-fecha { color:var(--text-sec) !important; font-weight:400 !important; }
+.sol-admin-acciones { display:flex; flex-direction:column; gap:6px; flex-shrink:0; }
+.btn-aprobar { background:#2e7d32; color:white; border:none; border-radius:8px; padding:8px 14px; font-size:12px; font-weight:700; cursor:pointer; font-family:'Nunito',sans-serif; }
+.btn-rechazar { background:#f5d0d0; color:var(--rojo); border:none; border-radius:8px; padding:8px 14px; font-size:12px; font-weight:700; cursor:pointer; font-family:'Nunito',sans-serif; }
+.btn-revocar { background:#fff3e0; color:#e65100; border:none; border-radius:8px; padding:6px 12px; font-size:11px; font-weight:700; cursor:pointer; font-family:'Nunito',sans-serif; }
+.badge-aprobado { font-size:12px; font-weight:700; color:#2e7d32; }
+.admin-empty { text-align:center; padding:32px; color:var(--text-sec); font-size:14px; font-weight:600; }
+
+/* BORDE DIRIGENTE PREVIEW */
+.borde-dirigente-preview { margin-top:8px; display:flex; align-items:center; gap:8px; }
+
+/* ---- ROL FIJO EN PERFIL ---- */
+.rol-fijo-display { background:var(--fondo); border-radius:8px; padding:12px 14px; font-size:14px; font-weight:700; color:var(--azul); }
+
+/* ---- LOGROS TIPO TROFEO (PlayStation style) ---- */
+.rama-solapas { display:flex; gap:6px; overflow-x:auto; padding-bottom:6px; margin-bottom:10px; -ms-overflow-style:none; scrollbar-width:none; }
+.rama-solapas::-webkit-scrollbar { display:none; }
+.rama-solapa-btn { flex-shrink:0; padding:8px 14px; border-radius:20px; background:white; border:1.5px solid #ccc; font-size:12px; font-weight:700; font-family:'Nunito',sans-serif; cursor:pointer; white-space:nowrap; }
+.rama-solapa-btn.bloqueada { background:#eee; color:#aaa; border-color:#ddd; cursor:not-allowed; }
+.trofeo-seccion-titulo { font-size:12px; font-weight:800; color:var(--text-sec); text-transform:uppercase; letter-spacing:0.06em; margin:18px 0 8px; }
+.trofeo-card {
+  display:flex; align-items:center; gap:12px; background:linear-gradient(135deg,#1a1f2e,#252b3d);
+  border-radius:12px; padding:12px 14px; margin-bottom:10px; box-shadow:0 3px 12px rgba(0,0,0,0.25);
+  border:1px solid rgba(255,255,255,0.06); position:relative; overflow:hidden;
+}
+.trofeo-card.completo { background:linear-gradient(135deg,#3a2f0d,#1a1f2e); border-color:rgba(230,184,0,0.4); }
+.trofeo-card.completo::before {
+  content:''; position:absolute; inset:0; background:linear-gradient(120deg,transparent 40%,rgba(230,184,0,0.15) 50%,transparent 60%);
+  animation:trofeo-sheen 3.5s infinite;
+}
+@keyframes trofeo-sheen { 0%{transform:translateX(-100%)} 100%{transform:translateX(100%)} }
+.trofeo-icono-wrap { width:52px; height:52px; border-radius:10px; overflow:hidden; flex-shrink:0; background:#0e1a2c; border:2px solid rgba(255,255,255,0.1); position:relative; z-index:1; }
+.trofeo-card.completo .trofeo-icono-wrap { border-color:var(--amarillo); box-shadow:0 0 10px rgba(230,184,0,0.5); }
+.trofeo-card.pendiente .trofeo-icono-wrap img { filter:grayscale(1) brightness(0.55); }
+.trofeo-icono-wrap img { width:100%; height:100%; object-fit:cover; }
+.trofeo-info { flex:1; min-width:0; position:relative; z-index:1; }
+.trofeo-nombre { color:#fff; font-size:13.5px; font-weight:800; text-transform:uppercase; letter-spacing:0.02em; margin-bottom:5px; }
+.trofeo-barra-wrap { background:rgba(255,255,255,0.12); border-radius:6px; height:8px; overflow:hidden; }
+.trofeo-barra { height:100%; background:linear-gradient(90deg,#4a7ac9,#6fa8dc); border-radius:6px; transition:width 0.4s; }
+.trofeo-card.completo .trofeo-barra { background:linear-gradient(90deg,#e6b800,#ffe066); }
+.trofeo-pct { font-size:11px; color:rgba(255,255,255,0.65); margin-top:4px; font-weight:700; }
+.trofeo-card.completo .trofeo-pct { color:var(--amarillo); }
+.trofeo-check { font-size:20px; flex-shrink:0; position:relative; z-index:1; }
+
+/* ---- CHECKLIST DE DOCUMENTACIÓN (visto por el propio joven) ---- */
+.doc-pendiente-card { background:white; border-radius:var(--radius); box-shadow:var(--shadow); padding:14px; margin-bottom:14px; border-left:4px solid var(--amarillo); }
+.doc-pendiente-card.completo { border-left-color:#2e7d32; }
+.doc-pendiente-titulo { font-size:13px; font-weight:800; color:var(--text-sec); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px; }
+.doc-pendiente-item { display:flex; align-items:center; gap:8px; padding:5px 0; font-size:13px; }
+.doc-pendiente-item.entregado { color:#2e7d32; text-decoration:line-through; opacity:0.7; }
+.doc-pendiente-item.falta { color:var(--rojo); font-weight:700; }
+.doc-pendiente-ok { text-align:center; color:#2e7d32; font-weight:700; padding:6px 0; }
+
+/* ---- MURO RAMA / STAFF EDITOR ---- */
+.rama-selector-bar { display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap; }
+.rama-selector-bar select { padding:9px 12px; border-radius:8px; border:1.5px solid var(--azul-cl); font-size:13px; font-family:'Nunito',sans-serif; }
+.joven-staff-card { background:white; border-radius:12px; padding:12px 14px; margin-bottom:8px; box-shadow:var(--shadow); display:flex; align-items:center; gap:10px; cursor:pointer; }
+.joven-staff-card img { width:38px; height:38px; border-radius:50%; object-fit:cover; }
+.joven-staff-card strong { font-size:13px; flex:1; }
+.editor-desarrollo-card { background:white; border-radius:var(--radius); box-shadow:var(--shadow); padding:16px; margin-top:14px; }
+.datos-personales-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px 12px; margin-bottom:10px; }
+.datos-personales-grid label { font-size:10.5px; font-weight:700; color:var(--text-sec); text-transform:uppercase; letter-spacing:0.04em; display:block; margin-bottom:3px; }
+.datos-personales-grid input { width:100%; padding:8px 10px; border-radius:8px; border:1.5px solid var(--azul-cl); font-size:12.5px; font-family:'Nunito',sans-serif; }
+.papeles-al-dia { background:#e8f5e9; color:#2e7d32; font-weight:800; font-size:13px; border-radius:8px; padding:10px 14px; margin-bottom:10px; text-align:center; }
+.editor-etapa-row { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+.editor-etapa-row img { width:34px; height:34px; border-radius:8px; object-fit:cover; flex-shrink:0; }
+.editor-etapa-row .et-nombre { font-size:12.5px; font-weight:700; width:100px; flex-shrink:0; }
+.editor-etapa-row input[type=range] { flex:1; }
+.editor-etapa-row .et-val { width:38px; text-align:right; font-size:12px; font-weight:700; color:var(--azul); }
+.especialidad-row { display:flex; align-items:center; gap:8px; margin-bottom:8px; background:var(--fondo); border-radius:8px; padding:8px 10px; }
+.especialidad-row input[type=text] { flex:1; padding:6px 8px; border-radius:6px; border:1px solid var(--azul-cl); font-size:12.5px; }
+.especialidad-row input[type=number] { width:56px; padding:6px; border-radius:6px; border:1px solid var(--azul-cl); font-size:12.5px; }
+.btn-add-especialidad { background:var(--azul-cl); color:var(--azul); border:none; border-radius:8px; padding:8px 14px; font-size:12px; font-weight:700; cursor:pointer; font-family:'Nunito',sans-serif; margin-top:6px; }
+
+@media (max-width:380px) { .ramas-grid { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div class="pantalla" id="pantalla-login" style="display:flex">
+  <div class="login-logo">
+    <img src="LogoPringles.png" alt="Logo Grupo Scout Pringles"
+      onerror="this.src='pringles-removebg-preview.png'">
+  </div>
+  <h1>La Pringles</h1>
+  <p>Portal de Jóvenes Scouts<br>Grupo Cnel. Juan Pascual Pringles · Barracas</p>
+  <button class="btn-google" onclick="loginConGoogle()">
+    <img src="https://www.google.com/favicon.ico" alt="Google"> Ingresar con Google
+  </button>
+  <p class="login-info">El acceso requiere autorización previa de los dirigentes.<br>Si es tu primera vez, podrás solicitarlo después de entrar.</p>
+</div>
+
+<!-- SOLICITUD -->
+<div class="pantalla" id="pantalla-solicitud">
+  <div class="solicitud-card">
+    <div style="font-size:48px;margin-bottom:12px">🔒</div>
+    <h2>Acceso pendiente</h2>
+    <p>Tu cuenta <strong id="sol-mail"></strong> todavía no tiene acceso. Completá el formulario y los dirigentes te habilitarán.</p>
+    <div class="form-group"><label>Tu nombre completo</label><input type="text" id="sol-input-nombre" placeholder="Nombre y apellido"></div>
+    <div class="form-group"><label>Tu edad</label><input type="number" id="sol-input-edad" placeholder="Ej: 12" min="5" max="30"></div>
+    <div class="form-group">
+      <label>Rama a la que querés ingresar</label>
+      <select id="sol-input-rama">
+        <option value="">-- Seleccioná --</option>
+        <option value="Castores">🦫 Castores Persistentes (5-7 años)</option>
+        <option value="Manada">🐺 Manada Mohwa (7-11 años)</option>
+        <option value="Scouts">⚜️ Unidad Scout Águila (11-14 años)</option>
+        <option value="Caminantes">🥾 Comunidad Caminante Fénix (14-17 años)</option>
+        <option value="Rovers">🧉 Clan Rover Martín Fierro (17-21 años)</option>
+      </select>
+    </div>
+    <button class="btn-primary" onclick="enviarSolicitud()">📧 Enviar solicitud a los dirigentes</button>
+    <div id="sol-enviado">✅ ¡Solicitud enviada! Los dirigentes te avisarán cuando tu acceso esté listo.</div>
+    <p style="margin-top:14px;font-size:11px;color:#aaa">Solicitudes a: comunicacionespringles@gmail.com</p>
+    <button onclick="logout()" style="margin-top:10px;background:none;border:none;color:#aaa;font-size:12px;cursor:pointer;font-family:'Nunito',sans-serif;">Salir con otra cuenta</button>
+  </div>
+</div>
+
+<!-- APP -->
+<div class="pantalla" id="pantalla-app">
+
+  <header class="app-header">
+    <div class="header-logo">
+      <img src="LogoPringles.png" alt="Logo" onerror="this.src='pringles-removebg-preview.png'">
+    </div>
+    <div class="header-title">La Pringles <span>Portal Jóvenes</span></div>
+
+    <!-- Redes sociales -->
+    <div class="header-redes-wrap">
+      <div class="header-redes">
+        <!-- Instagram -->
+        <a href="https://www.instagram.com/gruposcoutpringles/" target="_blank" rel="noopener" title="Instagram">
+          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>
+        </a>
+        <!-- Facebook -->
+        <a href="https://www.facebook.com/GrupoScoutPringles/" target="_blank" rel="noopener" title="Facebook">
+          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+        </a>
+        <!-- Museo (Facebook) -->
+        <a href="https://www.facebook.com/museoscoutpostiglione" target="_blank" rel="noopener" title="Museo Scout Postiglione">
+          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 3L2 9v1h2v10h16V10h2V9L12 3zm0 2.236L20 9.764V19H4V9.764L12 5.236zM10 11v6h4v-6h-4z"/></svg>
+        </a>
+        <!-- YouTube -->
+        <a href="https://www.youtube.com/@GrupoScoutCnel.JuanP.Pringles" target="_blank" rel="noopener" title="YouTube">
+          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M23.495 6.205a3.007 3.007 0 0 0-2.088-2.088c-1.87-.501-9.396-.501-9.396-.501s-7.507-.01-9.396.501A3.007 3.007 0 0 0 .527 6.205a31.247 31.247 0 0 0-.522 5.805 31.247 31.247 0 0 0 .522 5.783 3.007 3.007 0 0 0 2.088 2.088c1.868.502 9.396.502 9.396.502s7.506 0 9.396-.502a3.007 3.007 0 0 0 2.088-2.088 31.247 31.247 0 0 0 .5-5.783 31.247 31.247 0 0 0-.5-5.805zM9.609 15.601V8.408l6.264 3.602z"/></svg>
+        </a>
+      </div>
+      <div class="header-redes-cartel">¡Seguinos en Redes!</div>
+    </div>
+
+    <div class="header-user">
+      <span id="nombre-header">—</span>
+      <span id="subnombre-header"></span>
+    </div>
+    <img id="avatar-header" src="" alt="Avatar" onclick="showTab('perfil')">
+    <button class="btn-logout" onclick="logout()">Salir</button>
+  </header>
+
+  <div class="app-content">
+
+    <div class="app-banner" id="android-banner" style="display:none">
+      <h3>📱 Instalá PringlesApp</h3>
+      <p id="install-banner-texto">Agregala a tu pantalla de inicio para entrar más rápido</p>
+      <button id="install-banner-btn" onclick="instalarComoApp()">Instalar</button>
+      <button onclick="cerrarInstallBanner()" style="background:none;border:1px solid rgba(255,255,255,0.4);color:white;margin-left:6px">Ahora no</button>
+    </div>
+
+    <!-- EL PLAYÓN -->
+    <!-- CALENDARIO -->
+    <div class="tab-panel" id="tab-calendario">
+      <div style="background:white;border-radius:var(--radius);padding:14px;box-shadow:var(--shadow)">
+        <div style="font-family:'Playfair Display',serif;font-size:18px;font-weight:700;margin-bottom:12px;color:var(--azul)">📅 Calendario del Grupo</div>
+        <div class="calendario-wrap">
+          <iframe
+            src="https://calendar.google.com/calendar/embed?src=6b47693e924a43f76b720582afb362b7d5b68e5bbd9613527fe93187d62c06f0%40group.calendar.google.com&ctz=America%2FArgentina%2FBuenos_Aires&hl=es&showTitle=0&mode=AGENDA&showPrint=0&showCalendars=0"
+            height="480" frameborder="0" scrolling="no">
+          </iframe>
+        </div>
+        <a href="https://calendar.google.com/calendar/embed?src=6b47693e924a43f76b720582afb362b7d5b68e5bbd9613527fe93187d62c06f0%40group.calendar.google.com&ctz=America%2FArgentina%2FBuenos_Aires"
+          target="_blank" style="display:block;margin-top:10px;text-align:center;font-size:13px;font-weight:700;color:var(--azul)">
+          Abrir en Google Calendar →
+        </a>
+      </div>
+    </div>
+
+    <!-- DOCUMENTOS -->
+    <div class="tab-panel" id="tab-documentos">
+      <div style="background:white;border-radius:var(--radius);padding:14px;box-shadow:var(--shadow)">
+        <div style="font-family:'Playfair Display',serif;font-size:18px;font-weight:700;margin-bottom:6px;color:var(--azul)">📁 Archivos del Grupo</div>
+        <p style="font-size:12px;color:var(--text-sec);margin-bottom:12px">Documentos y recursos compartidos. Algunos requieren permiso según tu rama. Si la vista de abajo aparece en blanco o con error, usá el botón "Abrir en Google Drive".</p>
+        <div class="drive-wrap">
+          <iframe
+            src="https://drive.google.com/embeddedfolderview?id=1_YiYvP46poJtj1x62z08ZH5BS87szUZS#list"
+            frameborder="0" allowfullscreen>
+          </iframe>
+        </div>
+        <a href="https://drive.google.com/drive/folders/1_YiYvP46poJtj1x62z08ZH5BS87szUZS?usp=drive_link"
+          target="_blank" class="btn-carpeta" style="background:var(--azul);color:white;text-decoration:none;margin-top:10px">
+          📁 Abrir en Google Drive →
+        </a>
+      </div>
+    </div>
+
+    <!-- PERFIL -->
+    <div class="tab-panel" id="tab-perfil">
+      <div class="perfil-card">
+        <div style="font-family:'Playfair Display',serif;font-size:18px;font-weight:700;margin-bottom:16px;color:var(--azul)">👤 Mi Perfil</div>
+        <div id="perfil-papeles-wrap"></div>
+
+        <!-- Foto: solo muestra, sin cambio -->
+        <div class="perfil-foto-wrap">
+          <img id="perfil-foto-actual" src="" alt="Foto de perfil" class="perfil-foto-actual">
+          <p style="font-size:11px;color:var(--text-sec);margin-top:6px">La foto se toma automáticamente de tu cuenta Google</p>
+        </div>
+
+        <!-- Nombre de usuario -->
+        <div class="perfil-form-group">
+          <label>Nombre de usuario (visible para todos)</label>
+          <input type="text" id="perfil-nombre" placeholder="Tu nombre o apodo scout" oninput="perfilModificado()">
+          <p id="perfil-nombre-real" style="font-size:11px;color:var(--text-sec);margin-top:4px"></p>
+        </div>
+
+        <!-- Edad -->
+        <div class="perfil-form-group">
+          <label>Edad</label>
+          <input type="number" id="perfil-edad" placeholder="Tu edad" min="5" max="99"
+            oninput="onEdadChange();perfilModificado()">
+        </div>
+
+        <!-- Rol / Rama: fija para jóvenes, editable para staff -->
+        <div class="perfil-form-group" id="grupo-rama">
+          <label id="label-rama">Tu rol en el grupo</label>
+          <div class="rol-fijo-display" id="rol-fijo-display"></div>
+        </div>
+
+        <div class="perfil-form-group" id="grupo-rama-asignada" style="display:none">
+          <label>Rama en la que trabajás (editable)</label>
+          <select id="perfil-rama-asignada" onchange="perfilModificado()">
+            <option value="">-- Elegí una rama --</option>
+            <option value="Castores">🦫 Castores</option>
+            <option value="Manada">🐺 Manada</option>
+            <option value="Scouts">⚜️ Tropa (Unidad Scout)</option>
+            <option value="Caminantes">🥾 Caminantes</option>
+            <option value="Rovers">🧉 Rovers</option>
+          </select>
+        </div>
+
+        <!-- Botón guardar: empieza gris, se activa al modificar -->
+        <button class="btn-primary" id="btn-guardar-perfil" onclick="guardarPerfil()"
+          style="background:#aaa;cursor:not-allowed" disabled>💾 Guardar cambios</button>
+      </div>
+    </div>
+
+    <!-- MI DESARROLLO (solo jóvenes) -->
+    <div class="tab-panel" id="tab-desarrollo">
+      <div style="font-family:'Playfair Display',serif;font-size:20px;font-weight:700;margin-bottom:4px;color:var(--azul)">🏆 Mi Desarrollo</div>
+      <p style="font-size:12px;color:var(--text-sec);margin-bottom:16px">Tus logros y etapas. Solo tu dirigente puede actualizarlos.</p>
+      <div id="doc-pendiente-wrap"></div>
+      <div id="desarrollo-lista"></div>
+    </div>
+
+    <!-- MI RAMA (sede + muro privado) -->
+    <div class="tab-panel" id="tab-mi-rama">
+      <div id="mi-rama-header"></div>
+      <div id="mi-rama-selector-wrap"></div>
+      <div id="mi-rama-info-card"></div>
+      <div class="muro-composer">
+        <div class="muro-composer-header">
+          <img class="composer-avatar" id="composer-avatar-rama" src="" alt="">
+          <span>Solo lo ven los integrantes de tu rama</span>
+        </div>
+        <textarea id="muro-rama-input" placeholder="Contá algo a tu rama... (máx. 150 caracteres)" oninput="contarCharsRama()" maxlength="150"></textarea>
+        <div class="muro-composer-footer">
+          <span class="muro-contador" id="muro-rama-contador">0/150</span>
+          <button class="btn-publicar" onclick="publicarEnMuroRama()">Publicar</button>
+        </div>
+      </div>
+      <div id="muro-rama-lista"></div>
+    </div>
+
+    <!-- JÓVENES (editor de desarrollo, staff) -->
+    <div class="tab-panel" id="tab-jovenes-staff">
+      <div style="font-family:'Playfair Display',serif;font-size:20px;font-weight:700;margin-bottom:14px;color:var(--azul)">🏆 Jóvenes de mi Rama</div>
+      <div id="jovenes-staff-selector-wrap"></div>
+      <div id="jovenes-staff-lista"></div>
+      <div id="jovenes-staff-editor-wrap"></div>
+    </div>
+
+    <!-- DASHBOARD DE CRECIMIENTO -->
+    <div class="tab-panel" id="tab-dashboard">
+      <div style="font-family:'Playfair Display',serif;font-size:20px;font-weight:700;margin-bottom:4px;color:var(--azul)">📈 Dashboard de Crecimiento</div>
+      <p style="font-size:12px;color:var(--text-sec);margin-bottom:14px">Progresión de logros en el tiempo. Filtrá por rama, persona y etapa.</p>
+      <div id="dash-filtros" class="rama-selector-bar"></div>
+      <div class="info-card"><canvas id="dash-chart" height="220"></canvas></div>
+      <div id="dash-resumen"></div>
+    </div>
+
+    <!-- ADMIN -->
+    <div class="tab-panel" id="tab-admin">
+      <div class="admin-section-title">🛡️ Panel de Administración</div>
+      <p class="admin-subtitle">Solo visible para administradores. Aprobá o rechazá las solicitudes de acceso al portal, asignando el rol correspondiente.</p>
+      <div id="admin-solicitudes-lista">
+        <div class="admin-empty">Cargando solicitudes...</div>
+      </div>
+      <div class="admin-section-title" style="margin-top:26px;font-size:17px">🔑 Administradores</div>
+      <p class="admin-subtitle">Otorgá o quitá permisos de administrador general a otras cuentas (ej: jefe de grupo).</p>
+      <div class="solicitud-admin-card" style="display:block">
+        <div class="form-group" style="margin-bottom:8px"><label>Email de la cuenta</label><input type="email" id="admin-nuevo-email" placeholder="jefe@gmail.com"></div>
+        <button class="btn-aprobar" onclick="otorgarAdminPortalUI()">➕ Hacer administrador</button>
+      </div>
+      <div id="admin-lista-dinamicos"></div>
+    </div>
+
+  </div>
+
+  <nav class="nav-bottom">
+    <button class="nav-item active" id="nav-mi-rama" onclick="showTab('mi-rama',this)"><span class="nav-icon">🏕️</span>Mi Rama</button>
+    <button class="nav-item" id="nav-desarrollo" style="display:none" onclick="showTab('desarrollo',this)"><span class="nav-icon">🏆</span>Logros</button>
+    <button class="nav-item" id="nav-jovenes" style="display:none" onclick="showTab('jovenes-staff',this)"><span class="nav-icon">🏆</span>Jóvenes</button>
+    <button class="nav-item" id="nav-dashboard" style="display:none" onclick="showTab('dashboard',this)"><span class="nav-icon">📈</span>Progreso</button>
+    <button class="nav-item" onclick="showTab('calendario',this)"><span class="nav-icon">📅</span>Calendario</button>
+    <button class="nav-item" onclick="showTab('documentos',this)"><span class="nav-icon">📁</span>Archivos</button>
+    <button class="nav-item" onclick="showTab('perfil',this)"><span class="nav-icon">👤</span>Perfil</button>
+    <button class="nav-item" id="nav-admin" style="display:none;color:#b01a1a" onclick="showTab('admin',this)"><span class="nav-icon">🛡️</span>Admin</button>
+  </nav>
+
+</div>
+
+<script>
+// ===================== DATOS DE RAMAS (con links de Drive correctos) =====================
+const RAMAS = [
+  { id:"castores",   nombre:"Castores",   nombreGrupo:"Castores Persistentes",       edades:"5 a 7 años",   color:"#FF6B00", emoji:"🦫", personaje:"PersonajeCastores.png",
+    descripcion:"¡Bienvenidos a la Colonia! Aquí empezamos nuestra gran aventura scout jugando y aprendiendo a compartir. Descubrimos la importancia de trabajar en equipo y cuidamos la naturaleza mientras hacemos nuestros primeros amigos.",
+    origen:"Surgió en la década de 1960 en Canadá, inspirada en la necesidad de incluir a los más pequeños en el movimiento antes de la edad de la Manada.",
+    carpetaUrl:"https://drive.google.com/drive/folders/1JbbIe0s5emgTXT9dxR6hB0dVueomFqqN?usp=drive_link" },
+  { id:"manada",     nombre:"Manada",     nombreGrupo:"Manada Mohwa",                edades:"7 a 11 años",  color:"#FFD600", emoji:"🐺", personaje:"PersonajeManada.png",
+    descripcion:"¡Entrá a la Selva de Seeonee! A través de las historias de \"El Libro de las Tierras Vírgenes\", aprendemos a valernos por nosotros mismos y a entender que \"somos de la misma sangre\". Una etapa llena de juegos y el inicio de nuestro compromiso.",
+    origen:"Creada por Robert Baden-Powell en 1916, usando el marco simbólico de Rudyard Kipling para los niños que aún eran muy jóvenes para ser scouts.",
+    carpetaUrl:"https://drive.google.com/drive/folders/1rV7tNy9tXC6d9beHmc1qoy7uWICW1J9r?usp=drive_link" },
+  { id:"scouts",     nombre:"Scouts",     nombreGrupo:"Unidad Scout Águila",          edades:"11 a 14 años", color:"#2E7D32", emoji:"⚜️", personaje:"PersonajeScouts.png",
+    descripcion:"Es el momento de salir al campo y vivir la aventura a fondo. Aprendés técnicas fundamentales: construcciones, orientación y campamentismo. Vos y tu patrulla toman las decisiones y lideran sus propios desafíos.",
+    origen:"Rama fundacional del movimiento, establecida por Baden-Powell tras el primer campamento en la Isla de Brownsea en 1907.",
+    carpetaUrl:"https://drive.google.com/drive/folders/14MdqK9uXgnI_PL23SsL-3WS4MoxvJc3x?usp=drive_link" },
+  { id:"caminantes", nombre:"Caminantes", nombreGrupo:"Comunidad Caminante Fénix",    edades:"14 a 17 años", color:"#1565C0", emoji:"🥾", personaje:"PersonajeCaminantes.png",
+    descripcion:"El horizonte es el límite. El desafío es salir a descubrir quién sos y qué impacto podés tener en tu entorno. Trazá tu propia ruta, trabajá en proyectos con amigos y viví la hermandad scout con autonomía.",
+    origen:"Evolucionó de los antiguos \"Senior Scouts\" para ofrecer mayor protagonismo y proyectos sociales para los adolescentes.",
+    carpetaUrl:"https://drive.google.com/drive/folders/1sv--8BPtb4pWkiBKFuLiNKdiFCwxC6-v?usp=drive_link" },
+  { id:"rovers",     nombre:"Rovers",     nombreGrupo:"Clan Rover \"Martín Fierro\"",  edades:"17 a 21 años", color:"#B71C1C", emoji:"🧉", personaje:"PersonajeRovers.png",
+    descripcion:"\"Servir\" es nuestro norte. Como Rover, el proyecto de vida y el servicio a los demás son los pilares. La etapa de mayor responsabilidad, donde el remo está en tus manos para navegar tu propia canoa.",
+    origen:"Formalizada por Baden-Powell en 1918 en \"Roverismo hacia el éxito\", dirigida a jóvenes que buscaban seguir sirviendo a la sociedad.",
+    carpetaUrl:"https://drive.google.com/drive/folders/1tVtsdsp6YFb9rWvSwqejQHDxBe5TWjwU?usp=drive_link" }
+];
+
+// ===================== NAVEGACIÓN =====================
+function showTab(id, btn) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + id).classList.add('active');
+  if (btn) btn.classList.add('active');
+  else {
+    const map={'mi-rama':0,desarrollo:1,'jovenes-staff':2,dashboard:3,calendario:4,documentos:5,perfil:6,admin:7};
+    if(map[id]!==undefined) document.querySelectorAll('.nav-item')[map[id]].classList.add('active');
+  }
+  if (id==='perfil') { if (window.refrescarMiPerfil) window.refrescarMiPerfil().then(cargarDatosPerfil); else cargarDatosPerfil(); }
+  if (id==='desarrollo') { if (window.refrescarMiPerfil) window.refrescarMiPerfil().then(renderDesarrollo); else renderDesarrollo(); }
+  if (id==='mi-rama') initMiRama();
+  if (id==='jovenes-staff') initJovenesStaff();
+  if (id==='dashboard') initDashboard();
+  if (id==='admin' && window.cargarSolicitudesAdmin) { window.cargarSolicitudesAdmin(); if (window.cargarAdminsDinamicos) window.cargarAdminsDinamicos(); }
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+// ===================== RAMAS =====================
+function renderRamas() {
+  const lista = document.getElementById('ramas-lista');
+  document.getElementById('rama-detalle-wrap').innerHTML = '';
+  lista.style.display = 'grid';
+  lista.innerHTML = RAMAS.map(r => `
+    <div class="rama-card" style="border-top-color:${r.color}" onclick="mostrarRama('${r.id}')">
+      <div class="rama-card-inner">
+        <div class="rama-card-header">
+          <img src="${r.personaje}" alt="${r.nombre}" class="rama-personaje"
+            onerror="this.style.display='none';this.nextSibling.style.display='flex'">
+          <div class="rama-personaje-emoji" style="background:${r.color}22;display:none">${r.emoji}</div>
+          <div><h3 style="color:${r.color}">${r.nombreGrupo}</h3><div class="rama-edad">${r.edades}</div></div>
+        </div>
+        <p>${r.descripcion.substring(0,80)}…</p>
+      </div>
+    </div>`).join('');
+}
+
+function mostrarRama(id) {
+  const r = RAMAS.find(x => x.id === id);
+  document.getElementById('ramas-lista').style.display = 'none';
+  const puedeAcceder = window.puedeAccederCarpeta ? window.puedeAccederCarpeta(r.nombre) : false;
+  document.getElementById('rama-detalle-wrap').innerHTML = `
+    <button class="btn-volver" onclick="renderRamas()">← Volver a Ramas</button>
+    <div class="rama-detalle-header">
+      <img src="${r.personaje}" alt="${r.nombre}" class="rama-detalle-personaje"
+        onerror="this.style.display='none';this.nextSibling.style.display='flex'">
+      <div class="rama-detalle-emoji" style="background:${r.color}22;display:none">${r.emoji}</div>
+      <div class="rama-detalle-info">
+        <h2 style="color:${r.color}">${r.nombreGrupo}</h2>
+        <div class="rama-nombre-grupo">Rama ${r.nombre} · Grupo Pringles</div>
+        <span class="rama-edad-badge" style="background:${r.color}">${r.edades}</span>
+      </div>
+    </div>
+    <div class="info-card"><h4>¿Qué hacemos?</h4><p>${r.descripcion}</p></div>
+    <div class="info-card"><h4>Origen mundial</h4><p>${r.origen}</p></div>
+    <div class="info-card"><h4>Carpeta de archivos</h4>
+      ${puedeAcceder
+        ? `<button class="btn-carpeta" style="background:${r.color};color:white"
+             onclick="window.open('${r.carpetaUrl}','_blank')">
+             📁 Abrir carpeta ${r.nombre}</button>`
+        : `<p style="font-size:13px;color:var(--text-sec);margin-bottom:10px">No tenés acceso a esta carpeta todavía.</p>
+           <button class="btn-carpeta" style="background:#e0e8f5;color:var(--azul)"
+             onclick="solicitarPermisoCarpeta('${r.nombre}')">📧 Solicitar acceso a ${r.nombre}</button>`}
+    </div>`;
+}
+
+// ===================== EMOJI / MURO =====================
+function toggleEmoji() { document.getElementById('emoji-picker').classList.toggle('open'); }
+function addEmoji(e) {
+  const ta = document.getElementById('muro-input');
+  if(ta.value.length < 150){ ta.value += e; contarChars(); }
+}
+
+// ===================== PERFIL =====================
+function cargarDatosPerfil() {
+  const up = window._userProfile ? window._userProfile() : null;
+  const cu = window._currentUser ? window._currentUser() : null;
+  if (!up) return;
+  document.getElementById('perfil-nombre').value = up.nombre || '';
+  document.getElementById('perfil-edad').value   = up.edad   || '';
+
+  const papelesWrap = document.getElementById('perfil-papeles-wrap');
+  const DOCS_REQ = ['ficha','historiaClinica','autorizacionImagen','fotoDni','fotoPartida','fotoEncargado','carnetVacunacion','carnetObraSocial','foto4x4'];
+  const doc2 = up.documentacion || {};
+  if (papelesWrap) {
+    papelesWrap.innerHTML = (window._ROLES_RAMA.includes(up.rol) && DOCS_REQ.every(k => doc2[k]))
+      ? `<div class="papeles-al-dia">✅ Papeles al día</div>` : '';
+  }
+
+  const rol = up.rol || '';
+  const ROLES_RAMA = window._ROLES_RAMA, ROL_LABEL = window._ROL_LABEL;
+  const esStaffLocal = window._ROLES_STAFF.includes(rol);
+  const display = document.getElementById('rol-fijo-display');
+  if (display) {
+    display.textContent = rol ? (ROL_LABEL[rol] || rol) + (rol ? ' — asignado por un administrador' : '') : 'Todavía no tenés un rol asignado';
+  }
+  document.getElementById('grupo-rama-asignada').style.display = esStaffLocal ? 'block' : 'none';
+  if (esStaffLocal) document.getElementById('perfil-rama-asignada').value = up.ramaAsignada || '';
+
+  // Mostrar nombre real de Google entre paréntesis
+  const nombreRealEl = document.getElementById('perfil-nombre-real');
+  if (cu && cu.displayName && nombreRealEl) {
+    nombreRealEl.textContent = 'Nombre Google: ' + cu.displayName;
+  }
+  const src = up.fotoPerfil ||
+    'https://ui-avatars.com/api/?name=' + encodeURIComponent(up.nombre||'U') + '&background=1a3a6b&color=fff';
+  document.getElementById('perfil-foto-actual').src = src;
+  // Botón empieza gris al cargar
+  resetBtnGuardar();
+}
+
+function resetBtnGuardar() {
+  const btn = document.getElementById('btn-guardar-perfil');
+  if (btn) {
+    btn.style.background = '#aaa';
+    btn.style.cursor = 'not-allowed';
+    btn.textContent = '💾 Guardar cambios';
+    btn.disabled = true;
+  }
+}
+
+function perfilModificado() {
+  const btn = document.getElementById('btn-guardar-perfil');
+  if (btn) {
+    btn.style.background = 'var(--azul)';
+    btn.style.cursor = 'pointer';
+    btn.textContent = '💾 Guardar cambios';
+    btn.disabled = false;
+  }
+}
+
+// ===================== MI DESARROLLO (trofeos, solo lectura para el joven) =====================
+function renderDesarrollo() {
+  const up = window._userProfile ? window._userProfile() : null;
+  const wrap = document.getElementById('desarrollo-lista');
+  if (!up || !wrap) return;
+  const rol = up.rol || '';
+  const ROLES_RAMA = window._ROLES_RAMA;
+  if (!ROLES_RAMA.includes(rol) && !(up.desarrollo && Object.keys(up.desarrollo.porRama||{}).length)) {
+    wrap.innerHTML = `<p style="font-size:13px;color:var(--text-sec)">Esta sección es para jóvenes de una rama.</p>`;
+    document.getElementById('doc-pendiente-wrap').innerHTML = '';
+    return;
+  }
+
+  renderDocumentacionPendiente(up);
+
+  const porRama = (up.desarrollo && up.desarrollo.porRama) || {};
+  const ramasVisitadas = new Set(Object.keys(porRama));
+  if (rol) ramasVisitadas.add(rol);
+
+  window._desarrolloRamaActiva = window._desarrolloRamaActiva && ramasVisitadas.has(window._desarrolloRamaActiva)
+    ? window._desarrolloRamaActiva : (rol || Array.from(ramasVisitadas)[0]);
+
+  let tabsHtml = `<div class="rama-solapas">`;
+  ROLES_RAMA.forEach(r => {
+    const visitada = ramasVisitadas.has(r);
+    const activa = r === window._desarrolloRamaActiva;
+    const color = window._RAMA_COLORES[r];
+    tabsHtml += `<button class="rama-solapa-btn ${activa?'activa':''} ${!visitada?'bloqueada':''}"
+      style="${activa ? `background:${color};color:white;border-color:${color}` : (visitada ? `color:${color};border-color:${color}` : '')}"
+      ${visitada ? `onclick="cambiarSolapaDesarrollo('${r}')"` : 'disabled title="Todavía no estuviste en esta rama"'}>
+      ${visitada ? '' : '🔒 '}${window._ROL_LABEL[r]||r}
+    </button>`;
+  });
+  tabsHtml += `</div>`;
+
+  wrap.innerHTML = tabsHtml + `<div id="desarrollo-contenido"></div>`;
+  renderDesarrolloContenido(up, window._desarrolloRamaActiva);
+}
+
+// Sección visible para el propio joven: qué documentación ya entregó y qué le falta traer.
+function renderDocumentacionPendiente(up) {
+  const wrap = document.getElementById('doc-pendiente-wrap');
+  if (!wrap) return;
+  const DOCS_REQUERIDOS = window._DOCS_REQUERIDOS, DOCS_LABELS = window._DOCS_LABELS;
+  const doc2 = up.documentacion || {};
+  const faltantes = DOCS_REQUERIDOS.filter(k => !doc2[k]);
+  const entregados = DOCS_REQUERIDOS.filter(k => doc2[k]);
+
+  if (faltantes.length === 0 && entregados.length === 0) {
+    // Todavía no se cargó nada del checklist: no molestamos con la sección.
+    wrap.innerHTML = '';
+    return;
+  }
+
+  if (faltantes.length === 0) {
+    wrap.innerHTML = `<div class="doc-pendiente-card completo">
+      <div class="doc-pendiente-titulo">📋 Documentación</div>
+      <div class="doc-pendiente-ok">✅ ¡Tenés toda tu documentación entregada!</div>
+    </div>`;
+    return;
+  }
+
+  wrap.innerHTML = `<div class="doc-pendiente-card">
+    <div class="doc-pendiente-titulo">📋 Documentación pendiente para traer al grupo</div>
+    ${faltantes.map(k => `<div class="doc-pendiente-item falta">🔲 ${DOCS_LABELS[k]}</div>`).join('')}
+    ${entregados.map(k => `<div class="doc-pendiente-item entregado">✅ ${DOCS_LABELS[k]}</div>`).join('')}
+  </div>`;
+}
+
+window.cambiarSolapaDesarrollo = (r) => {
+  window._desarrolloRamaActiva = r;
+  renderDesarrollo();
+};
+
+function renderDesarrolloContenido(up, ramaSel) {
+  const cont = document.getElementById('desarrollo-contenido');
+  if (!cont) return;
+  const ETAPAS_POR_RAMA = window._ETAPAS_POR_RAMA, ETAPA_ICONOS = window._ETAPA_ICONOS, RAMA_LOGO_GRUPO = window._RAMA_LOGO_GRUPO;
+  const porRama = (up.desarrollo && up.desarrollo.porRama) || {};
+  const desarrollo = porRama[ramaSel] || { promesa:0, etapas:{}, especialidades:[] };
+  const etapas = ETAPAS_POR_RAMA[ramaSel] || [];
+
+  let html = `<div class="trofeo-seccion-titulo">Promesa</div>`;
+  html += trofeoCardHtml('Promesa', RAMA_LOGO_GRUPO[ramaSel], desarrollo.promesa || 0);
+
+  html += `<div class="trofeo-seccion-titulo">Etapas de ${ramaSel}</div>`;
+  etapas.forEach(et => {
+    html += trofeoCardHtml(et, ETAPA_ICONOS[et], (desarrollo.etapas && desarrollo.etapas[et]) || 0);
+  });
+
+  html += `<div class="trofeo-seccion-titulo">Especialidades</div>`;
+  const especialidades = desarrollo.especialidades || [];
+  if (especialidades.length === 0) {
+    html += `<p style="font-size:12px;color:var(--text-sec)">Todavía no hay especialidades cargadas.</p>`;
+  } else {
+    especialidades.forEach(e => { html += trofeoCardHtml(e.nombre, RAMA_LOGO_GRUPO[ramaSel], e.pct || 0); });
+  }
+
+  const notasPublicas = (up.desarrollo.notas || []).filter(n => n.tipo === 'publica' && n.rama === ramaSel);
+  html += `<div class="trofeo-seccion-titulo">Notas de tu dirigente en ${ramaSel}</div>`;
+  if (notasPublicas.length === 0) {
+    html += `<p style="font-size:12px;color:var(--text-sec)">Todavía no hay notas para esta rama.</p>`;
+  } else {
+    notasPublicas.slice().sort((a,b)=>(a.fecha||0)-(b.fecha||0)).reverse().forEach(n => {
+      html += `<div class="info-card" style="margin-bottom:8px"><p style="font-size:13px">${escapeHtmlLocal(n.texto)}</p><p style="font-size:10px;color:var(--text-sec);margin-top:6px">— ${escapeHtmlLocal(n.autor||'')} · ${n.fecha ? new Date(n.fecha).toLocaleDateString('es-AR') : ''}</p></div>`;
+    });
+  }
+  cont.innerHTML = html;
+}
+
+function trofeoCardHtml(nombre, icono, pct) {
+  const completo = pct >= 100;
+  return `<div class="trofeo-card ${completo ? 'completo' : 'pendiente'}">
+    <div class="trofeo-icono-wrap"><img src="${icono}" alt="${nombre}"></div>
+    <div class="trofeo-info">
+      <div class="trofeo-nombre">${nombre}</div>
+      <div class="trofeo-barra-wrap"><div class="trofeo-barra" style="width:${pct}%"></div></div>
+      <div class="trofeo-pct">${pct}%</div>
+    </div>
+    ${completo ? '<div class="trofeo-check">🏆</div>' : ''}
+  </div>`;
+}
+
+// ===================== MI RAMA (muro privado) =====================
+let unsubMuroRama = null;
+
+function ramaActivaUsuario() {
+  const up = window._userProfile ? window._userProfile() : null;
+  if (!up) return '';
+  const rol = up.rol || '';
+  return window._ROLES_STAFF.includes(rol) ? (up.ramaAsignada || '') : rol;
+}
+
+function initMiRama() {
+  const up = window._userProfile ? window._userProfile() : null;
+  if (!up) return;
+  const esColabOAdmin = up.isAdmin || up.rol === 'Colaborador';
+  const selectorWrap = document.getElementById('mi-rama-selector-wrap');
+  const avatarSrc = up.fotoPerfil || 'https://ui-avatars.com/api/?name=' + encodeURIComponent(up.nombre||'U') + '&background=1a3a6b&color=fff';
+  const avEl = document.getElementById('composer-avatar-rama'); if (avEl) avEl.src = avatarSrc;
+
+  if (esColabOAdmin) {
+    selectorWrap.innerHTML = `
+      <div class="rama-selector-bar">
+        <select id="mi-rama-select" onchange="cambiarMiRamaSeleccionada()">
+          <option value="">-- Elegí una rama --</option>
+          ${window._ROLES_RAMA.map(r => `<option value="${r}">${window._ROL_LABEL[r]||r}</option>`).join('')}
+        </select>
+      </div>`;
+    const guardada = window._miRamaSeleccionada || '';
+    if (guardada) document.getElementById('mi-rama-select').value = guardada;
+    actualizarMiRamaVista(guardada);
+  } else {
+    selectorWrap.innerHTML = '';
+    actualizarMiRamaVista(ramaActivaUsuario());
+  }
+}
+
+function actualizarMiRamaVista(rama) {
+  renderMiRamaHeader(rama);
+  renderMiRamaInfoCard(rama);
+  escucharMuroRama(rama);
+}
+
+function renderMiRamaHeader(rama) {
+  const header = document.getElementById('mi-rama-header');
+  if (!rama) {
+    header.innerHTML = `<div style="font-family:'Playfair Display',serif;font-size:20px;font-weight:700;margin-bottom:14px;color:var(--azul)">🏕️ Mi Rama</div>`;
+    return;
+  }
+  const color  = window._RAMA_COLORES[rama] || '#1a3a6b';
+  const sede   = window._RAMA_SEDE_NOMBRE[rama] || rama;
+  const icono  = window._RAMA_SEDE_ICONO[rama] || '⚜️';
+  header.innerHTML = `
+    <div style="background:${color};color:white;border-radius:var(--radius);padding:16px 18px;margin-bottom:14px;display:flex;align-items:center;gap:12px;box-shadow:var(--shadow)">
+      <div style="width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,0.18);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">${icono}</div>
+      <div>
+        <div style="font-family:'Playfair Display',serif;font-size:19px;font-weight:700;line-height:1.1">${sede}</div>
+        <div style="font-size:11px;opacity:0.85">Rama ${window._ROL_LABEL[rama]||rama}</div>
+      </div>
+    </div>`;
+}
+
+function renderMiRamaInfoCard(rama) {
+  const wrap = document.getElementById('mi-rama-info-card');
+  if (!rama) { wrap.innerHTML = ''; return; }
+  const r = RAMAS.find(x => x.nombre === rama);
+  if (!r) { wrap.innerHTML = ''; return; }
+  const puedeAcceder = window.puedeAccederCarpeta ? window.puedeAccederCarpeta(rama) : false;
+  wrap.innerHTML = `
+    <div class="info-card"><h4>¿Qué hacemos?</h4><p>${r.descripcion}</p></div>
+    <div class="info-card"><h4>Carpeta de archivos</h4>
+      ${puedeAcceder
+        ? `<button class="btn-carpeta" style="background:${r.color};color:white" onclick="window.open('${r.carpetaUrl}','_blank')">📁 Abrir carpeta ${r.nombre}</button>`
+        : `<p style="font-size:13px;color:var(--text-sec);margin-bottom:10px">No tenés acceso a esta carpeta todavía.</p>
+           <button class="btn-carpeta" style="background:#e0e8f5;color:var(--azul)" onclick="solicitarPermisoCarpeta('${r.nombre}')">📧 Solicitar acceso a ${r.nombre}</button>`}
+    </div>`;
+}
+
+window.cambiarMiRamaSeleccionada = () => {
+  const rama = document.getElementById('mi-rama-select').value;
+  window._miRamaSeleccionada = rama;
+  actualizarMiRamaVista(rama);
+};
+
+function escucharMuroRama(rama) {
+  if (unsubMuroRama) unsubMuroRama();
+  const lista = document.getElementById('muro-rama-lista');
+  if (!rama) { lista.innerHTML = `<p style="font-size:13px;color:var(--text-sec);text-align:center;padding:20px">Elegí una rama para ver su muro.</p>`; return; }
+  unsubMuroRama = window.cargarMuroRama(rama, posts => {
+    const up = window._userProfile ? window._userProfile() : null;
+    lista.innerHTML = posts.length === 0 ? `<p style="font-size:13px;color:var(--text-sec);text-align:center;padding:20px">Todavía no hay publicaciones en ${rama}.</p>` : posts.map(p => {
+      const esDirigenteColor = p.ramaColor === 'dirigente';
+      const color = esDirigenteColor ? '#1a3a6b' : (p.ramaColor || '#1a3a6b');
+      const puedeBorrar = up && (up.isAdmin || p.uid === up.uid || up.uid === (window._currentUser && window._currentUser().uid));
+      const borderStyle = esDirigenteColor
+        ? `border:3px solid transparent;background-image:linear-gradient(white,white),linear-gradient(135deg,#1a3a6b,#e6b800,#b01a1a);background-origin:border-box;background-clip:padding-box,border-box;`
+        : `border:2.5px solid ${color};`;
+      return `<div class="post-card">
+        <img src="${p.foto || 'https://ui-avatars.com/api/?name='+encodeURIComponent(p.nombre)+'&background=1a3a6b&color=fff'}" class="post-avatar" style="${borderStyle}">
+        <div class="post-body">
+          <div class="post-header">
+            <strong class="post-nombre">${p.nombre}</strong>
+            ${p.subnombre ? `<span class="post-rama" style="background:${color}20;color:${color}">${p.subnombre}</span>` : ''}
+            <span class="post-tiempo">${p.fecha ? formatTiempoLocal(p.fecha.toDate()) : ''}</span>
+            ${puedeBorrar ? `<button class="post-menu-btn" onclick="eliminarPostRama('${p.id}')" title="Eliminar">🗑️</button>` : ''}
+          </div>
+          <p class="post-texto">${escapeHtmlLocal(p.texto)}</p>
+        </div>
+      </div>`;
+    }).join('');
+  });
+}
+
+function formatTiempoLocal(date) {
+  const diff = Math.floor((Date.now() - date) / 60000);
+  if (diff < 1) return 'ahora';
+  if (diff < 60) return `hace ${diff}m`;
+  if (diff < 1440) return `hace ${Math.floor(diff/60)}h`;
+  return date.toLocaleDateString('es-AR');
+}
+function escapeHtmlLocal(s) { const d = document.createElement('div'); d.textContent = s||''; return d.innerHTML; }
+
+window.contarCharsRama = () => {
+  const val = document.getElementById('muro-rama-input').value;
+  document.getElementById('muro-rama-contador').textContent = val.length + '/150';
+};
+
+window.publicarEnMuroRama = async () => {
+  const rama = window._miRamaSeleccionada || ramaActivaUsuario();
+  if (!rama) { alert('Elegí una rama primero.'); return; }
+  const input = document.getElementById('muro-rama-input');
+  await window.publicarPostRama(rama, input.value.trim());
+  input.value = '';
+  document.getElementById('muro-rama-contador').textContent = '0/150';
+};
+
+// ===================== JÓVENES (editor de desarrollo, staff/admin) =====================
+function initJovenesStaff() {
+  const up = window._userProfile ? window._userProfile() : null;
+  if (!up) return;
+  const puedeElegir = up.isAdmin || up.rol === 'Colaborador';
+  const selectorWrap = document.getElementById('jovenes-staff-selector-wrap');
+  document.getElementById('jovenes-staff-editor-wrap').innerHTML = '';
+
+  if (puedeElegir) {
+    selectorWrap.innerHTML = `
+      <div class="rama-selector-bar">
+        <select id="jov-staff-rama-select" onchange="cargarListaJovenesStaff()">
+          <option value="">-- Elegí una rama --</option>
+          ${window._ROLES_RAMA.map(r => `<option value="${r}">${window._ROL_LABEL[r]||r}</option>`).join('')}
+        </select>
+      </div>`;
+    document.getElementById('jovenes-staff-lista').innerHTML = '';
+  } else {
+    selectorWrap.innerHTML = '';
+    const rama = up.ramaAsignada || '';
+    if (!rama) { document.getElementById('jovenes-staff-lista').innerHTML = `<p style="font-size:13px;color:var(--text-sec)">Todavía no tenés una rama asignada en tu perfil.</p>`; return; }
+    cargarListaJovenesStaff(rama);
+  }
+}
+
+window.cargarListaJovenesStaff = async (ramaFija) => {
+  const rama = ramaFija || (document.getElementById('jov-staff-rama-select') ? document.getElementById('jov-staff-rama-select').value : '');
+  const lista = document.getElementById('jovenes-staff-lista');
+  if (!rama) { lista.innerHTML = ''; return; }
+  lista.innerHTML = `<p style="font-size:13px;color:var(--text-sec)">Cargando...</p>`;
+  try {
+    const jovenes = await window.obtenerJovenesPorRama(rama);
+    if (jovenes.length === 0) { lista.innerHTML = `<p style="font-size:13px;color:var(--text-sec)">No hay jóvenes con rol ${rama} todavía.</p>`; return; }
+    lista.innerHTML = jovenes.map(j => `
+      <div class="joven-staff-card" onclick="abrirEditorDesarrolloPorUid('${j.uid}')">
+        <img src="${j.fotoPerfil || 'https://ui-avatars.com/api/?name='+encodeURIComponent(j.nombre||'U')+'&background=1a3a6b&color=fff'}" alt="">
+        <strong>${j.nombre || j.email}</strong>
+        <span style="font-size:11px;color:var(--text-sec)">✏️ Editar</span>
+    </div>`).join('');
+  } catch (e) {
+    console.error("cargarListaJovenesStaff:", e);
+    lista.innerHTML = `<p style="color:var(--rojo);font-size:13px">Error al cargar los jóvenes. Revisá la consola (F12).</p>`;
+  }
+};
+
+let editorDesarrolloActual = null;
+
+// Antes se le pasaba el objeto ya cacheado de la lista (podía estar desactualizado si algo
+// se cambió desde la Intranet mientras tanto). Ahora siempre trae el dato fresco de Firestore.
+window.abrirEditorDesarrolloPorUid = async (uid) => {
+  const fresco = await window.obtenerPerfilFresco(uid);
+  if (!fresco) { alert('No se pudo cargar este joven. Probá de nuevo.'); return; }
+  window.abrirEditorDesarrollo(fresco);
+};
+
+window.abrirEditorDesarrollo = (joven) => {
+  editorDesarrolloActual = joven;
+  if (!editorDesarrolloActual.desarrollo) editorDesarrolloActual.desarrollo = { porRama:{}, notas:[] };
+  if (!editorDesarrolloActual.desarrollo.porRama) editorDesarrolloActual.desarrollo.porRama = {};
+  if (!editorDesarrolloActual.desarrollo.notas) editorDesarrolloActual.desarrollo.notas = [];
+  if (!editorDesarrolloActual.desarrollo.porRama[editorDesarrolloActual.rol]) {
+    editorDesarrolloActual.desarrollo.porRama[editorDesarrolloActual.rol] = { promesa:0, etapas:{}, especialidades:[] };
+  }
+  renderEditorDesarrollo();
+};
+
+function renderEditorDesarrollo() {
+  const j = editorDesarrolloActual;
+  const up = window._userProfile ? window._userProfile() : null;
+  const wrap = document.getElementById('jovenes-staff-editor-wrap');
+  const rol = j.rol;
+  const etapas = window._ETAPAS_POR_RAMA[rol] || [];
+  const d = j.desarrollo.porRama[rol];
+  const color = window._RAMA_COLORES[rol] || '#1a3a6b';
+  const doc = j.documentacion || {};
+  const DOCS_REQUERIDOS = window._DOCS_REQUERIDOS, DOCS_LABELS = window._DOCS_LABELS;
+  const docsCompletos = DOCS_REQUERIDOS.every(k => doc[k]);
+
+  let html = `<div class="editor-desarrollo-card">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+      <div>
+        <div style="font-weight:800;font-size:15px;margin-bottom:4px;color:var(--azul)">✏️ Editando: ${j.nombre}</div>
+        <div style="font-size:12px;color:var(--text-sec);margin-bottom:14px">Rama actual: <b style="color:${color}">${rol}</b></div>
+      </div>
+      <button class="btn-carpeta" style="background:var(--azul-cl);color:var(--azul);width:auto;padding:8px 12px;font-size:11px;flex-shrink:0" onclick="descargarHistorialPDF()">📄 Descargar historial PDF</button>
+    </div>
+
+    <div style="font-weight:700;font-size:13px;margin:8px 0 8px;color:var(--text-sec)">DATOS PERSONALES</div>
+    <div class="datos-personales-grid">
+      <div><label>Email</label><div class="rol-fijo-display" style="padding:8px 10px;font-size:12px">${j.email||'—'}</div></div>
+      <div><label>DNI</label><input type="text" id="dp-dni" value="${j.dni||''}" placeholder="Sin cargar"></div>
+      <div><label>Fecha de nacimiento</label><input type="date" id="dp-fnac" value="${j.fechaNacimiento||''}"></div>
+      <div><label>Teléfono</label><input type="text" id="dp-tel" value="${j.telefono||''}" placeholder="Sin cargar"></div>
+      <div style="grid-column:1/-1"><label>Dirección</label><input type="text" id="dp-dir" value="${j.direccion||''}" placeholder="Sin cargar"></div>
+    </div>
+    <button class="btn-add-especialidad" onclick="guardarDatosPersonales()">💾 Guardar datos personales</button>
+
+    ${up && up.isAdmin ? `
+    <div style="font-weight:700;font-size:13px;margin:22px 0 8px;color:var(--text-sec);border-top:1px solid var(--fondo);padding-top:16px">DOCUMENTACIÓN (solo administradores)</div>
+    ${docsCompletos ? `<div class="papeles-al-dia">✅ Papeles al día</div>` : ''}
+    <div id="docs-checklist">${DOCS_REQUERIDOS.map(k => `
+      <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;text-transform:none;margin-bottom:6px">
+        <input type="checkbox" style="width:auto" ${doc[k]?'checked':''} onchange="toggleDocumentoJoven('${k}',this.checked)"> ${DOCS_LABELS[k]}
+      </label>`).join('')}</div>
+    ` : ''}
+
+    <div class="editor-etapa-row">
+      <img src="${window._RAMA_LOGO_GRUPO[rol]}" alt="Promesa">
+      <span class="et-nombre">Promesa</span>
+      <input type="range" min="0" max="100" value="${d.promesa||0}" oninput="actualizarEditorEtapa('promesa', this.value)">
+      <span class="et-val" id="val-promesa">${d.promesa||0}%</span>
+    </div>`;
+
+  etapas.forEach(et => {
+    const val = (d.etapas && d.etapas[et]) || 0;
+    html += `<div class="editor-etapa-row">
+      <img src="${window._ETAPA_ICONOS[et]}" alt="${et}">
+      <span class="et-nombre">${et}</span>
+      <input type="range" min="0" max="100" value="${val}" oninput="actualizarEditorEtapa('etapa:${et}', this.value)">
+      <span class="et-val" id="val-etapa-${et.replace(/\s/g,'_')}">${val}%</span>
+    </div>`;
+  });
+
+  html += `<div style="font-weight:700;font-size:13px;margin:16px 0 8px;color:var(--text-sec)">ESPECIALIDADES</div>
+    <div id="especialidades-list">${(d.especialidades||[]).map((e,i) => `
+      <div class="especialidad-row">
+        <input type="text" value="${e.nombre}" onchange="editarEspecialidad(${i},'nombre',this.value)">
+        <input type="number" min="0" max="100" value="${e.pct}" onchange="editarEspecialidad(${i},'pct',this.value)">%
+        <button onclick="borrarEspecialidad(${i})" style="background:none;border:none;color:var(--rojo);cursor:pointer">🗑️</button>
+      </div>`).join('')}</div>
+    <button class="btn-add-especialidad" onclick="agregarEspecialidad()">➕ Agregar especialidad</button>
+    <button class="btn-primary" style="margin-top:16px" onclick="guardarEditorDesarrollo()">💾 Guardar cambios</button>
+
+    <div style="font-weight:700;font-size:13px;margin:22px 0 8px;color:var(--text-sec);border-top:1px solid var(--fondo);padding-top:16px">CAMPAMENTOS VIVIDOS</div>
+    <div id="campamentos-list">${(j.campamentos||[]).slice().sort((a,b)=>(a.fecha||'').localeCompare(b.fecha||'')).map((c,i) => `
+      <div class="especialidad-row">
+        <span style="flex:1;font-size:12.5px"><b>${escapeHtmlLocal(c.nombre)}</b> — ${c.fecha ? new Date(c.fecha+'T00:00:00').toLocaleDateString('es-AR') : ''}</span>
+        <button onclick="borrarCampamento(${i})" style="background:none;border:none;color:var(--rojo);cursor:pointer">🗑️</button>
+      </div>`).join('') || '<p style="font-size:12px;color:var(--text-sec)">Todavía no hay campamentos cargados.</p>'}</div>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <input type="text" id="camp-nombre" placeholder="Nombre del campamento" style="flex:2;padding:8px 10px;border-radius:8px;border:1.5px solid var(--azul-cl);font-size:12.5px">
+      <input type="date" id="camp-fecha" style="flex:1;padding:8px 10px;border-radius:8px;border:1.5px solid var(--azul-cl);font-size:12.5px">
+    </div>
+    <button class="btn-add-especialidad" onclick="agregarCampamento()">➕ Agregar campamento</button>
+
+    <div style="font-weight:700;font-size:13px;margin:22px 0 8px;color:var(--text-sec);border-top:1px solid var(--fondo);padding-top:16px">PASAR A OTRA RAMA</div>
+    <p style="font-size:11px;color:var(--text-sec);margin-bottom:8px">No se pierde nada de lo cargado en ${rol}: queda guardado en su historial.</p>
+    <div style="display:flex;gap:8px">
+      <select id="select-pase-rama" style="flex:1;padding:9px 12px;border-radius:8px;border:1.5px solid var(--azul-cl)">
+        <option value="">-- Elegí la nueva rama --</option>
+        ${window._ROLES_RAMA.filter(r => r !== rol).map(r => `<option value="${r}">${window._ROL_LABEL[r]||r}</option>`).join('')}
+      </select>
+      <button class="btn-aprobar" onclick="confirmarPaseDeRama()">Pasar</button>
+    </div>
+
+    ${renderHistorialRamasAnteriores(j, rol)}
+
+    <div style="font-weight:700;font-size:13px;margin:22px 0 8px;color:var(--text-sec);border-top:1px solid var(--fondo);padding-top:16px">NOTAS</div>
+    <div id="notas-list">${renderNotasList(j, rol)}</div>
+    <textarea id="nota-nueva-texto" placeholder="Escribí una nota sobre ${j.nombre}..." maxlength="300" style="width:100%;border:1.5px solid var(--azul-cl);border-radius:8px;padding:8px 10px;font-family:'Nunito',sans-serif;font-size:13px;resize:none;height:56px;margin-top:8px"></textarea>
+    <div style="display:flex;align-items:center;gap:10px;margin-top:6px">
+      <label style="display:flex;align-items:center;gap:4px;font-size:12px;font-weight:600;text-transform:none"><input type="radio" name="nota-tipo" value="publica" checked style="width:auto"> Pública (la ve el joven)</label>
+      <label style="display:flex;align-items:center;gap:4px;font-size:12px;font-weight:600;text-transform:none"><input type="radio" name="nota-tipo" value="interna" style="width:auto"> Interna (solo staff)</label>
+    </div>
+    <button class="btn-add-especialidad" style="margin-top:8px" onclick="agregarNota()">➕ Agregar nota</button>
+
+    ${up && up.isAdmin ? `
+    <div style="border-top:1px solid var(--fondo);margin-top:22px;padding-top:16px">
+      <button style="background:none;border:1px solid var(--rojo);color:var(--rojo);border-radius:8px;padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:'Nunito',sans-serif" onclick="eliminarPerfilDesdeEditor()">🗑️ Eliminar perfil completo</button>
+    </div>` : ''}
+  </div>`;
+  wrap.innerHTML = html;
+}
+
+window.guardarDatosPersonales = async () => {
+  const datos = {
+    dni: document.getElementById('dp-dni').value.trim(),
+    fechaNacimiento: document.getElementById('dp-fnac').value,
+    telefono: document.getElementById('dp-tel').value.trim(),
+    direccion: document.getElementById('dp-dir').value.trim()
+  };
+  await window.guardarDatosPersonalesJoven(editorDesarrolloActual.uid, datos);
+  Object.assign(editorDesarrolloActual, datos);
+  alert('✅ Datos personales guardados.');
+};
+
+window.toggleDocumentoJoven = async (clave, val) => {
+  if (!editorDesarrolloActual.documentacion) editorDesarrolloActual.documentacion = {};
+  editorDesarrolloActual.documentacion[clave] = val;
+  await window.guardarDocumentacionJoven(editorDesarrolloActual.uid, editorDesarrolloActual.documentacion);
+  renderEditorDesarrollo();
+};
+
+window.agregarCampamento = async () => {
+  const nombre = document.getElementById('camp-nombre').value.trim();
+  const fecha = document.getElementById('camp-fecha').value;
+  if (!nombre) { alert('Escribí el nombre del campamento.'); return; }
+  if (!editorDesarrolloActual.campamentos) editorDesarrolloActual.campamentos = [];
+  editorDesarrolloActual.campamentos.push({ nombre, fecha, agregadoPor: (window._userProfile ? window._userProfile().nombre : '') });
+  await window.agregarCampamentoJoven(editorDesarrolloActual.uid, editorDesarrolloActual.campamentos);
+  renderEditorDesarrollo();
+};
+window.borrarCampamento = async (i) => {
+  if (!confirm('¿Eliminar este campamento del historial?')) return;
+  editorDesarrolloActual.campamentos.splice(i, 1);
+  await window.agregarCampamentoJoven(editorDesarrolloActual.uid, editorDesarrolloActual.campamentos);
+  renderEditorDesarrollo();
+};
+
+window.eliminarPerfilDesdeEditor = async () => {
+  if (!confirm(`¿Eliminar TODO el perfil de ${editorDesarrolloActual.nombre}? Esta acción no se puede deshacer.`)) return;
+  if (!confirm('Confirmá de nuevo: se borra su progreso, notas y datos. ¿Seguro?')) return;
+  await window.eliminarPerfilJoven(editorDesarrolloActual.uid, editorDesarrolloActual.email);
+  alert('Perfil eliminado.');
+  document.getElementById('jovenes-staff-editor-wrap').innerHTML = '';
+  if (window.cargarListaJovenesStaff) window.cargarListaJovenesStaff(document.getElementById('jov-staff-rama-select') ? document.getElementById('jov-staff-rama-select').value : undefined);
+};
+
+function renderHistorialRamasAnteriores(j, rolActual) {
+  const porRama = j.desarrollo.porRama || {};
+  const anteriores = Object.keys(porRama).filter(r => r !== rolActual);
+  if (anteriores.length === 0) return '';
+  let html = `<div style="font-weight:700;font-size:13px;margin:22px 0 8px;color:var(--text-sec);border-top:1px solid var(--fondo);padding-top:16px">HISTORIAL DE RAMAS ANTERIORES</div>`;
+  anteriores.forEach(r => {
+    const dr = porRama[r];
+    const color = window._RAMA_COLORES[r] || '#1a3a6b';
+    const etapas = window._ETAPAS_POR_RAMA[r] || [];
+    html += `<div class="info-card" style="border-left:4px solid ${color}">
+      <h4 style="color:${color}">${r}</h4>
+      <p style="font-size:12px">Promesa: <b>${dr.promesa||0}%</b></p>
+      ${etapas.map(et => `<p style="font-size:12px">${et}: <b>${(dr.etapas&&dr.etapas[et])||0}%</b></p>`).join('')}
+      ${(dr.especialidades||[]).length ? `<p style="font-size:12px;margin-top:4px">Especialidades: ${dr.especialidades.map(e=>e.nombre+' ('+e.pct+'%)').join(', ')}</p>` : ''}
+    </div>`;
+  });
+  return html;
+}
+
+function renderNotasList(j, rol) {
+  const up = window._userProfile ? window._userProfile() : null;
+  const cu = window._currentUser ? window._currentUser() : null;
+  const todas = j.desarrollo.notas || [];
+  if (todas.length === 0) return `<p style="font-size:12px;color:var(--text-sec)">Todavía no hay notas.</p>`;
+  // Mostramos TODAS las notas (de todas las ramas por las que pasó), no solo la actual —
+  // así cualquier dirigente que reciba al joven ve el historial interno completo.
+  return todas.map((n, i) => ({ n, i })).sort((a,b) => (b.n.fecha||0) - (a.n.fecha||0)).map(({n, i}) => {
+    const puedeEditar = cu && ((n.autorUid && n.autorUid === cu.uid) || (up && up.isAdmin));
+    const colorRama = window._RAMA_COLORES[n.rama] || '#1a3a6b';
+    return `<div class="info-card" style="margin-bottom:8px;border-left:4px solid ${n.tipo==='publica' ? '#2e7d32' : '#b01a1a'}" id="nota-card-${i}">
+      <div id="nota-vista-${i}">
+        <p style="font-size:12.5px">${escapeHtmlLocal(n.texto)}</p>
+        <p style="font-size:10px;color:var(--text-sec);margin-top:6px">
+          ${n.tipo==='publica' ? '👁️ Pública' : '🔒 Interna'} ·
+          <span style="color:${colorRama};font-weight:700">${n.rama||''}</span> ·
+          ${escapeHtmlLocal(n.autor||'')} · ${n.fecha ? new Date(n.fecha).toLocaleDateString('es-AR') : ''}
+        </p>
+        ${puedeEditar ? `
+          <div style="margin-top:6px;display:flex;gap:10px">
+            <button onclick="editarNotaExistente(${i})" style="background:none;border:none;color:var(--azul);font-size:11px;font-weight:700;cursor:pointer">✏️ Editar</button>
+            <button onclick="borrarNotaExistente(${i})" style="background:none;border:none;color:var(--rojo);font-size:11px;font-weight:700;cursor:pointer">🗑️ Eliminar</button>
+          </div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+window.actualizarEditorEtapa = (clave, valor) => {
+  valor = parseInt(valor);
+  const d = editorDesarrolloActual.desarrollo.porRama[editorDesarrolloActual.rol];
+  if (clave === 'promesa') {
+    d.promesa = valor;
+    document.getElementById('val-promesa').textContent = valor + '%';
+  } else {
+    const et = clave.split(':')[1];
+    if (!d.etapas) d.etapas = {};
+    d.etapas[et] = valor;
+    document.getElementById('val-etapa-' + et.replace(/\s/g,'_')).textContent = valor + '%';
+  }
+};
+
+window.agregarEspecialidad = () => {
+  const d = editorDesarrolloActual.desarrollo.porRama[editorDesarrolloActual.rol];
+  if (!d.especialidades) d.especialidades = [];
+  d.especialidades.push({ nombre: 'Nueva especialidad', pct: 0 });
+  renderEditorDesarrollo();
+};
+window.editarEspecialidad = (i, campo, valor) => {
+  const d = editorDesarrolloActual.desarrollo.porRama[editorDesarrolloActual.rol];
+  d.especialidades[i][campo] = campo === 'pct' ? parseInt(valor) : valor;
+};
+window.borrarEspecialidad = (i) => {
+  const d = editorDesarrolloActual.desarrollo.porRama[editorDesarrolloActual.rol];
+  d.especialidades.splice(i, 1);
+  renderEditorDesarrollo();
+};
+
+window.agregarNota = () => {
+  const texto = document.getElementById('nota-nueva-texto').value.trim();
+  if (!texto) { alert('Escribí algo primero.'); return; }
+  const tipo = document.querySelector('input[name="nota-tipo"]:checked').value;
+  const up = window._userProfile ? window._userProfile() : null;
+  const cu = window._currentUser ? window._currentUser() : null;
+  editorDesarrolloActual.desarrollo.notas.push({
+    texto, tipo, rama: editorDesarrolloActual.rol,
+    autor: up ? up.nombre : '', autorUid: cu ? cu.uid : '', autorEmail: cu ? cu.email : '',
+    fecha: Date.now()
+  });
+  document.getElementById('nota-nueva-texto').value = '';
+  renderEditorDesarrollo();
+};
+
+window.editarNotaExistente = async (i) => {
+  const nota = editorDesarrolloActual.desarrollo.notas[i];
+  const nuevoTexto = prompt('Editar nota:', nota.texto);
+  if (nuevoTexto === null) return;
+  if (!nuevoTexto.trim()) { alert('La nota no puede quedar vacía.'); return; }
+  nota.texto = nuevoTexto.trim();
+  nota.editado = true;
+  await window.guardarDesarrolloJoven(editorDesarrolloActual.uid, editorDesarrolloActual.desarrollo);
+  renderEditorDesarrollo();
+};
+
+window.borrarNotaExistente = async (i) => {
+  if (!confirm('¿Eliminar esta nota? No se puede deshacer.')) return;
+  editorDesarrolloActual.desarrollo.notas.splice(i, 1);
+  await window.guardarDesarrolloJoven(editorDesarrolloActual.uid, editorDesarrolloActual.desarrollo);
+  renderEditorDesarrollo();
+};
+
+window.confirmarPaseDeRama = async () => {
+  const nuevaRama = document.getElementById('select-pase-rama').value;
+  if (!nuevaRama) { alert('Elegí la rama nueva.'); return; }
+  if (!confirm(`¿Pasar a ${editorDesarrolloActual.nombre} de ${editorDesarrolloActual.rol} a ${nuevaRama}? Su historial en ${editorDesarrolloActual.rol} queda guardado.`)) return;
+  // Guardamos lo que haya quedado cargado antes de pasar
+  await window.guardarDesarrolloJoven(editorDesarrolloActual.uid, editorDesarrolloActual.desarrollo);
+  await window.cambiarRolJoven(editorDesarrolloActual.uid, nuevaRama, editorDesarrolloActual.email);
+  editorDesarrolloActual.rol = nuevaRama;
+  if (!editorDesarrolloActual.desarrollo.porRama[nuevaRama]) {
+    editorDesarrolloActual.desarrollo.porRama[nuevaRama] = { promesa:0, etapas:{}, especialidades:[] };
+  }
+  alert(`✅ ${editorDesarrolloActual.nombre} ahora es de ${nuevaRama}.`);
+  renderEditorDesarrollo();
+  if (window.cargarListaJovenesStaff) window.cargarListaJovenesStaff(document.getElementById('jov-staff-rama-select') ? document.getElementById('jov-staff-rama-select').value : undefined);
+};
+
+window.guardarEditorDesarrollo = async () => {
+  await window.guardarDesarrolloJoven(editorDesarrolloActual.uid, editorDesarrolloActual.desarrollo);
+  await window.registrarProgresoHistorial(editorDesarrolloActual);
+  alert('✅ Desarrollo guardado para ' + editorDesarrolloActual.nombre);
+};
+
+// ===================== DASHBOARD DE CRECIMIENTO =====================
+let dashChart = null;
+let dashJovenesCache = [];
+
+async function initDashboard() {
+  const up = window._userProfile ? window._userProfile() : null;
+  if (!up) return;
+  const esAdminOColab = up.isAdmin || up.rol === 'Colaborador';
+  const ramaFija = (!esAdminOColab && up.rol === 'Dirigente') ? (up.ramaAsignada || '') : '';
+
+  const filtrosWrap = document.getElementById('dash-filtros');
+  filtrosWrap.innerHTML = `
+    <select id="dash-rama-select" onchange="dashCambioRama()" ${ramaFija ? 'disabled' : ''}>
+      ${ramaFija ? `<option value="${ramaFija}">${window._ROL_LABEL[ramaFija]||ramaFija}</option>`
+                 : `<option value="">Todas las ramas</option>${window._ROLES_RAMA.map(r => `<option value="${r}">${window._ROL_LABEL[r]||r}</option>`).join('')}`}
+    </select>
+    <select id="dash-persona-select" onchange="cargarDashboard()"><option value="">Todas las personas</option></select>
+    <select id="dash-etapa-select" onchange="cargarDashboard()"><option value="">Todas las etapas</option></select>
+    <label style="display:flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;text-transform:none;padding:9px 4px">
+      <input type="checkbox" id="dash-incluir-anteriores" style="width:auto" onchange="cargarDashboard()"> Incluir quienes ya no están en la rama
+    </label>
+  `;
+  if (ramaFija) document.getElementById('dash-rama-select').value = ramaFija;
+  await dashCambioRama();
+}
+
+window.dashCambioRama = async () => {
+  const rama = document.getElementById('dash-rama-select').value;
+  const personaSelect = document.getElementById('dash-persona-select');
+  const etapaSelect = document.getElementById('dash-etapa-select');
+
+  // dashJovenesCache siempre son los jóvenes ACTUALMENTE en la rama (o en las 5 ramas si no hay filtro)
+  dashJovenesCache = [];
+  if (rama) {
+    dashJovenesCache = await window.obtenerJovenesPorRama(rama);
+  } else {
+    for (const r of window._ROLES_RAMA) {
+      const js = await window.obtenerJovenesPorRama(r);
+      dashJovenesCache = dashJovenesCache.concat(js);
+    }
+  }
+  personaSelect.innerHTML = `<option value="">Todas las personas</option>` +
+    dashJovenesCache.map(j => `<option value="${j.uid}">${j.nombre}</option>`).join('');
+
+  let etapasDisponibles = [];
+  if (rama) etapasDisponibles = window._ETAPAS_POR_RAMA[rama] || [];
+  else Object.values(window._ETAPAS_POR_RAMA).forEach(arr => etapasDisponibles = etapasDisponibles.concat(arr));
+  etapasDisponibles = ['Promesa', ...new Set(etapasDisponibles)];
+  etapaSelect.innerHTML = `<option value="">Todas las etapas</option>` + etapasDisponibles.map(e => `<option value="${e}">${e}</option>`).join('');
+
+  cargarDashboard();
+};
+
+window.cargarDashboard = async () => {
+  const rama    = document.getElementById('dash-rama-select').value;
+  const uid     = document.getElementById('dash-persona-select').value;
+  const etapa   = document.getElementById('dash-etapa-select').value;
+  const incluirAnteriores = document.getElementById('dash-incluir-anteriores') ? document.getElementById('dash-incluir-anteriores').checked : false;
+
+  let filtroRama = rama || null;
+  if (uid && !incluirAnteriores) {
+    // Por defecto medimos SOLO la progresión de la rama actual del joven, no la suma de ramas anteriores.
+    const persona = dashJovenesCache.find(j => j.uid === uid);
+    filtroRama = persona ? persona.rol : filtroRama;
+  }
+
+  let datos = await window.obtenerHistorialProgreso({ rama: filtroRama, uid: uid || null });
+  if (etapa) datos = datos.filter(d => d.etapa === etapa);
+
+  if (!uid && !incluirAnteriores) {
+    // Solo jóvenes que siguen actualmente en la rama filtrada
+    const idsActuales = new Set(dashJovenesCache.map(j => j.uid));
+    datos = datos.filter(d => idsActuales.has(d.uid));
+  }
+
+  const ctx = document.getElementById('dash-chart').getContext('2d');
+  if (dashChart) dashChart.destroy();
+
+  if (datos.length === 0) {
+    document.getElementById('dash-resumen').innerHTML = `<p style="font-size:12px;color:var(--text-sec)">Todavía no hay datos de progreso guardados con estos filtros. Se van a ir generando a medida que los dirigentes guarden cambios en "Jóvenes".</p>`;
+    return;
+  }
+
+  if (uid && etapa) {
+    // Serie en el tiempo para una persona + una etapa puntual
+    const persona = dashJovenesCache.find(j => j.uid === uid);
+    const color = window._RAMA_COLORES[persona ? persona.rol : rama] || '#1a3a6b';
+    const ordenados = datos.slice().sort((a,b) => (a.fecha?.toDate?.()||0) - (b.fecha?.toDate?.()||0));
+    dashChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: ordenados.map(d => d.fecha && d.fecha.toDate ? d.fecha.toDate().toLocaleDateString('es-AR') : ''),
+        datasets: [{ label: etapa, data: ordenados.map(d => d.pct), borderColor: color, backgroundColor: color, tension: 0.25 }]
+      },
+      options: { responsive:true, scales:{ y:{ min:0, max:100 } } }
+    });
+    document.getElementById('dash-resumen').innerHTML = `<p style="font-size:12px;color:var(--text-sec)">Evolución de "${etapa}" para ${persona ? persona.nombre : ''} a lo largo del tiempo.</p>`;
+  } else if (uid) {
+    // Última foto de cada etapa para una persona
+    const persona = dashJovenesCache.find(j => j.uid === uid);
+    const color = window._RAMA_COLORES[persona ? persona.rol : rama] || '#1a3a6b';
+    const porEtapa = {};
+    datos.forEach(d => { porEtapa[d.etapa] = d.pct; }); // como viene ordenado por fecha asc, el último pisa
+    const labels = Object.keys(porEtapa);
+    dashChart = new Chart(ctx, {
+      type: 'bar',
+      data: { labels, datasets: [{ label: persona ? persona.nombre : 'Progreso', data: labels.map(l => porEtapa[l]), backgroundColor: color }] },
+      options: { responsive:true, scales:{ y:{ min:0, max:100 } } }
+    });
+    document.getElementById('dash-resumen').innerHTML = `<p style="font-size:12px;color:var(--text-sec)">Último valor cargado de cada etapa para ${persona ? persona.nombre : ''}.</p>`;
+  } else {
+    // Comparativa entre personas (última foto), coloreado por rama de cada una
+    const porPersona = {};
+    datos.forEach(d => {
+      if (etapa && d.etapa !== etapa) return;
+      porPersona[d.uid] = { nombre: d.nombre, rama: d.rama, pct: d.pct };
+    });
+    const entradas = Object.values(porPersona);
+    dashChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: entradas.map(e => e.nombre),
+        datasets: [{
+          label: etapa || 'Promedio de progreso',
+          data: entradas.map(e => e.pct),
+          backgroundColor: entradas.map(e => window._RAMA_COLORES[e.rama] || '#1a3a6b')
+        }]
+      },
+      options: { responsive:true, scales:{ y:{ min:0, max:100 } } }
+    });
+    document.getElementById('dash-resumen').innerHTML = `<p style="font-size:12px;color:var(--text-sec)">${etapa ? `Último valor de "${etapa}"` : 'Último valor cargado'} por persona, coloreado según su rama.</p>`;
+  }
+};
+
+// ===================== EXPORTAR HISTORIAL A PDF =====================
+async function imgUrlADataUrl(url) {
+  try {
+    const resp = await fetch(url);
+    const blob = await resp.blob();
+    return await new Promise((res, rej) => {
+      const reader = new FileReader();
+      reader.onload = () => res(reader.result);
+      reader.onerror = rej;
+      reader.readAsDataURL(blob);
+    });
+  } catch (e) { console.error('No se pudo cargar imagen para el PDF:', url, e); return null; }
+}
+
+window.descargarHistorialPDF = async () => {
+  const j = editorDesarrolloActual;
+  if (!j) return;
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
+  const pageW = pdf.internal.pageSize.getWidth();
+  let y = 50;
+
+  const logoData = await imgUrlADataUrl('LogoPringles.png').catch(() => null);
+  if (logoData) { try { pdf.addImage(logoData, 'PNG', 40, 30, 40, 40); } catch(e){} }
+  pdf.setFont('helvetica', 'bold'); pdf.setFontSize(18);
+  pdf.text('Historial Scout — ' + (j.nombre || ''), pageW/2, 55, { align: 'center' });
+  pdf.setFont('helvetica', 'normal'); pdf.setFontSize(10); pdf.setTextColor(100);
+  pdf.text('Grupo Scout Cnel. Juan Pascual Pringles · Generado el ' + new Date().toLocaleDateString('es-AR'), pageW/2, 72, { align: 'center' });
+  pdf.setTextColor(0);
+  y = 100;
+
+  function saltoDePaginaSiHaceFalta(alturaNecesaria) {
+    if (y + alturaNecesaria > 780) { pdf.addPage(); y = 50; }
+  }
+
+  // Datos personales y de contacto
+  pdf.setFont('helvetica', 'bold'); pdf.setFontSize(12);
+  pdf.text('Datos personales', 50, y); y += 18;
+  pdf.setFont('helvetica', 'normal'); pdf.setFontSize(10);
+  const fNac = j.fechaNacimiento ? new Date(j.fechaNacimiento + 'T00:00:00').toLocaleDateString('es-AR') : 'Sin cargar';
+  pdf.text('Email: ' + (j.email || '—'), 50, y); y += 15;
+  pdf.text('DNI: ' + (j.dni || 'Sin cargar') + '     Fecha de nacimiento: ' + fNac, 50, y); y += 15;
+  pdf.text('Teléfono: ' + (j.telefono || 'Sin cargar'), 50, y); y += 15;
+  pdf.text('Dirección: ' + (j.direccion || 'Sin cargar'), 50, y); y += 22;
+
+  // Campamentos vividos
+  if ((j.campamentos||[]).length) {
+    saltoDePaginaSiHaceFalta(30 + j.campamentos.length * 14);
+    pdf.setFont('helvetica', 'bold'); pdf.setFontSize(12);
+    pdf.text('Campamentos vividos', 50, y); y += 18;
+    pdf.setFont('helvetica', 'normal'); pdf.setFontSize(10);
+    j.campamentos.slice().sort((a,b)=>(a.fecha||'').localeCompare(b.fecha||'')).forEach(c => {
+      const f = c.fecha ? new Date(c.fecha + 'T00:00:00').toLocaleDateString('es-AR') : '';
+      pdf.text('• ' + c.nombre + (f ? ' — ' + f : ''), 50, y); y += 14;
+    });
+    y += 10;
+  }
+  pdf.setDrawColor(220); pdf.line(40, y, pageW - 40, y); y += 20;
+
+  const porRama = j.desarrollo.porRama || {};
+  const ramasOrdenadas = Object.keys(porRama);
+
+  for (const rama of ramasOrdenadas) {
+    const dr = porRama[rama];
+    const etapas = window._ETAPAS_POR_RAMA[rama] || [];
+    saltoDePaginaSiHaceFalta(90);
+
+    const logoRama = await imgUrlADataUrl(window._RAMA_LOGO_GRUPO[rama]).catch(() => null);
+    if (logoRama) { try { pdf.addImage(logoRama, 'JPEG', 40, y, 30, 30); } catch(e){} }
+    pdf.setFont('helvetica', 'bold'); pdf.setFontSize(14);
+    pdf.text(rama + (rama === j.rol ? '  (rama actual)' : ''), 80, y + 12);
+    pdf.setFont('helvetica', 'normal'); pdf.setFontSize(10);
+    y += 40;
+
+    pdf.text('Promesa: ' + (dr.promesa||0) + '%', 50, y); y += 16;
+    etapas.forEach(et => { pdf.text(et + ': ' + ((dr.etapas && dr.etapas[et]) || 0) + '%', 50, y); y += 16; });
+    if ((dr.especialidades||[]).length) {
+      pdf.text('Especialidades: ' + dr.especialidades.map(e => e.nombre + ' (' + e.pct + '%)').join(', '), 50, y, { maxWidth: pageW - 100 }); y += 20;
+    }
+    y += 10;
+    pdf.setDrawColor(220); pdf.line(40, y, pageW - 40, y); y += 20;
+  }
+
+  saltoDePaginaSiHaceFalta(40);
+  pdf.setFont('helvetica', 'bold'); pdf.setFontSize(14);
+  pdf.text('Notas de dirigentes (públicas e internas)', 50, y); y += 22;
+  pdf.setFont('helvetica', 'normal'); pdf.setFontSize(10);
+
+  const notas = (j.desarrollo.notas || []).slice().sort((a,b) => (a.fecha||0) - (b.fecha||0));
+  if (notas.length === 0) {
+    pdf.text('No hay notas cargadas.', 50, y); y += 16;
+  }
+  notas.forEach(n => {
+    saltoDePaginaSiHaceFalta(50);
+    const fecha = n.fecha ? new Date(n.fecha).toLocaleDateString('es-AR') : '';
+    pdf.setFont('helvetica', 'bold');
+    pdf.text(`[${n.tipo === 'publica' ? 'Pública' : 'Interna'}] ${n.rama || ''} — ${n.autor || ''} — ${fecha}`, 50, y);
+    y += 14;
+    pdf.setFont('helvetica', 'normal');
+    const lineas = pdf.splitTextToSize(n.texto || '', pageW - 100);
+    pdf.text(lineas, 50, y);
+    y += lineas.length * 13 + 12;
+  });
+
+  pdf.save(`Historial-${(j.nombre||'joven').replace(/\s+/g,'-')}.pdf`);
+};
+
+let deferredInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  mostrarBannerInstalacion();
+});
+
+function esStandaloneApp() {
+  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+}
+function esIOSDispositivo() { return /iPhone|iPad|iPod/i.test(navigator.userAgent); }
+function esMobileDispositivo() { return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent); }
+
+function mostrarBannerInstalacion() {
+  if (esStandaloneApp()) return;
+  if (localStorage.getItem('pj_install_cerrado') === '1') return;
+  if (!esMobileDispositivo()) return;
+  const banner = document.getElementById('android-banner');
+  const btn = document.getElementById('install-banner-btn');
+  const texto = document.getElementById('install-banner-texto');
+  if (esIOSDispositivo()) {
+    texto.textContent = 'Tocá Compartir 📤 y luego "Agregar a inicio"';
+    btn.style.display = 'none';
+  } else {
+    texto.textContent = 'Agregala a tu pantalla de inicio para entrar más rápido';
+    btn.style.display = 'inline-block';
+  }
+  banner.style.display = 'block';
+}
+
+async function instalarComoApp() {
+  if (!deferredInstallPrompt) { alert('Usá el menú del navegador (⋮) → "Agregar a pantalla de inicio"'); return; }
+  deferredInstallPrompt.prompt();
+  await deferredInstallPrompt.userChoice;
+  deferredInstallPrompt = null;
+  document.getElementById('android-banner').style.display = 'none';
+}
+
+function cerrarInstallBanner() {
+  document.getElementById('android-banner').style.display = 'none';
+  localStorage.setItem('pj_install_cerrado', '1');
+}
+
+function detectarAndroid() { mostrarBannerInstalacion(); }
+
+// Mantener avatar del composer sincronizado
+setInterval(() => {
+  const ah = document.getElementById('avatar-header');
+  const ca = document.getElementById('composer-avatar');
+  if (ah && ca && ah.src && ah.src !== ca.src) ca.src = ah.src;
+}, 800);
+</script>
+</body>
+</html>
